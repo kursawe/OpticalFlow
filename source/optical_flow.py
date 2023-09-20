@@ -1,17 +1,20 @@
 import numpy as np
 from numba import jit
 import matplotlib.pyplot as plt
-font = {'size'   : 10}
+font = {'size'   : 10,
+        'sans-serif' : 'Arial'}
 plt.rc('font', **font)
 from matplotlib.animation import FuncAnimation
 
 @jit(nopython=True, error_model = "numpy")
-def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0):
+def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0):
     
     # movie = np.array(movie, dtype = np.float64)
     movie = movie.astype(np.float64)
     first_frame = movie[0,:,:]
     dIdx = np.zeros_like(first_frame)
+    dIdy = np.zeros_like(first_frame)
+    delta_t_data = delta_t
     delta_t = 1
     number_of_frames = movie.shape[0]
     #Nb = int((1024-2)/box_size)#Number of boxes
@@ -32,16 +35,19 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0):
         current_frame = movie[frame_index]
         previous_frame = movie[frame_index -1]
             
-        dIdx = (current_frame[2:,1:-1] +previous_frame[2:,1:-1] - current_frame[:-2,1:-1]-previous_frame[:-2,1:-1])/(4*delta_t)
-        dIdy = (current_frame[1:-1,2:] +previous_frame[1:-1,2:] - current_frame[1:-1,:-2]-previous_frame[1:-1,:-2])/(4*delta_t)
+        dIdx_calc = (current_frame[2:,1:-1] +previous_frame[2:,1:-1] - current_frame[:-2,1:-1]-previous_frame[:-2,1:-1])/4
+        dIdy_calc = (current_frame[1:-1,2:] +previous_frame[1:-1,2:] - current_frame[1:-1,:-2]-previous_frame[1:-1,:-2])/4
+        
+        dIdx[1:-1,1:-1] = dIdx_calc
+        dIdy[1:-1,1:-1] = dIdy_calc
 
         delta_I_too_big = current_frame-previous_frame
        
-        delta_I = delta_I_too_big[1:Xpixels-1,1:Ypixels-1]#0-1024 in total
+        # delta_I = delta_I_too_big[1:Xpixels-1,1:Ypixels-1]#0-1024 in total
+        delta_I = delta_I_too_big#0-1024 in total
         #In other words
         ##delta_I = delta_I_too_big[1:-1,1:-1]
         
-        b = box_size*box_size 
         v_x = all_v_x[frame_index-1,:,:]
         v_y = all_v_y[frame_index-1,:,:]
         
@@ -76,28 +82,61 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0):
                 v_y[pixel_index_x,pixel_index_y] = Vy
                 
                 speed[pixel_index_x,pixel_index_y] = Vspeed
-        v_x*= delta_x
-        v_y*= delta_x
-        speed*=delta_x
+        v_x*= delta_x/delta_t_data
+        v_y*= delta_x/delta_t_data
+        speed*=delta_x/delta_t_data
         
     return all_v_x, all_v_y, all_speed, movie
 
-def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0):
-    all_v_x, all_v_y, all_speed, movie = conduct_optical_flow_jit(movie, boxsize, delta_x)
+def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0):
+    all_v_x, all_v_y, all_speed, movie = conduct_optical_flow_jit(movie, boxsize, delta_x, delta_t)
     result = dict()
     result['v_x'] = all_v_x
     result['v_y'] = all_v_y
     result['speed'] = all_speed
     result['original_data'] = movie
     result['delta_x'] = delta_x
+    result['delta_t'] = delta_t
 
     return result
     
-def make_velocity_overlay_movie(flow_result,filename, boxsize = 5, arrow_scale = 1.0):   
+def make_velocity_overlay_movie(flow_result,filename, boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', autoscale_image = False, arrow_color = 'magenta'):   
+    """Plot a optical flow velocity result
+    
+    Parameters :
+    ------------
+    
+    flow_result : dict
+        output of our optical flow calculations
+    
+    filename : string
+        saving location
+        
+    boxsize : int
+        size of the box around each arrow in pixels
+        
+    arrow_scale : float
+        scaling paramter to change the length of arrows
+        
+    cmap : string
+        name of a matplotlib colormap to be used
+        
+    arrow_color : string
+        maptlotlib name of the color of the arrows
+    """
+    if autoscale_image:
+        v_min = None
+        v_max = None
+    else: 
+        v_min = 0.0
+        v_max = 255.0
+
     movie = flow_result['original_data']
     number_of_frames = movie.shape[0]
     Xpixels=flow_result['v_x'].shape[1]#Number of X pixels=379
     Ypixels=flow_result['v_y'].shape[2]#Number of Y pixels=279
+    x_extent = Xpixels * flow_result['delta_x']
+    y_extent = Ypixels * flow_result['delta_x']
     Nbx = int(Xpixels/boxsize)
     Nby = int(Ypixels/boxsize)
     
@@ -123,13 +162,47 @@ def make_velocity_overlay_movie(flow_result,filename, boxsize = 5, arrow_scale =
         y_pos += round(boxsize/2)
         x_direct = newall_v_x[i,:,:]
         y_direct = newall_v_y[i,:,:]      
-        plt.imshow(movie[i,:,:])
-        plt.quiver(y_pos, x_pos, y_direct, -x_direct, color = 'white',headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
-        plt.title("Visualizing Velocity") 
-        plt.xlabel("Number of Pixels")
-        plt.ylabel("Number of Pixels")
-        plt.tight_layout()#make sure all lables fit in the frame
+        plt.imshow(movie[i,:,:],cmap = cmap, extent = [0,y_extent, x_extent, 0], vmin = v_min, vmax = v_max, interpolation = None)
+        plt.quiver(y_pos/Ypixels*y_extent, x_pos/Xpixels*x_extent, y_direct, -x_direct, color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        plt.xlabel("y-position [$\mathrm{\mu}$m]")
+        plt.ylabel("x-position [$\mathrm{\mu}$m]")
+        if i <1:
+            plt.tight_layout()#make sure all lables fit in the frame
     ani = FuncAnimation(fig, animate, frames=movie.shape[0]-1)
     #ani.save('Visualizing Velocity.gif')
     ani.save(filename,dpi=600) 
+
+
+#  fig = plt.figure(figsize = (2.5,2.5))
+#     ax = plt.gca()
+#     image = ax.imshow(movie[0,:,:],cmap = cmap, extent = [0,y_extent, x_extent, 0], animated = True)
+#     quiver = ax.quiver([], [], [], [], color='white', headwidth=5)
+#     quiver = ax.quiver([], [], [], [], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+#     plt.xlabel("Number of Pixels")
+#     plt.ylabel("Number of Pixels")
+#     plt.xlabel("y-position [$\mathrm{\mu}$m]")
+#     plt.ylabel("x-position [$\mathrm{\mu}$m]")
+#     plt.tight_layout()#make sure all lables fit in the frame
+
+#     def init():
+#         quiver.set_offsets([])
+#         quiver.set_UVC([], [])
+#     return image, quiver
+
+#     def animate(i): 
+#         upper_mgrid_limit_x = int(Nbx*boxsize)
+#         upper_mgrid_limit_y = int(Nby*boxsize)#to make1024/100=100
+#         x_pos = np.mgrid[0:upper_mgrid_limit_x:boxsize]
+#         x_pos += round(boxsize/2)
+#         y_pos = np.mgrid[0:upper_mgrid_limit_y:boxsize]
+#         y_pos += round(boxsize/2)
+#         x_direct = newall_v_x[i,:,:]
+#         y_direct = newall_v_y[i,:,:]      
+#         image.set_array(movie[i, :, :])
+#         quiver.set_offsets(np.column_stack([y_pos.ravel(), x_pos.ravel()]))
+#         quiver.set_UVC(y_direct.ravel(), -x_direct.ravel())
+    
+#     ani = FuncAnimation(fig, animate, frames=movie.shape[0]-1, init_func = init, blit = True)
+#     #ani.save('Visualizing Velocity.gif')
+#     ani.save(filename,dpi=600) 
 
