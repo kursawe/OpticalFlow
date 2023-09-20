@@ -191,6 +191,7 @@ def make_boxsize_comparison():
     histogram_figure = plt.figure(figsize = (2.5,2.5))
     def animate(index):
         integer_boxsize = round(boxsizes[index])
+        print('calculating boxsize ' + str(integer_boxsize))
         this_result = optical_flow.conduct_optical_flow(actin_movie, boxsize = integer_boxsize, delta_x = 0.0913, delta_t = 10.0)
         this_mean_speed = np.mean(this_result['speed'])
         this_speed_std = np.std(this_result['speed'])
@@ -202,7 +203,8 @@ def make_boxsize_comparison():
         plt.ylabel('Number of Pixels')
         plt.xlim(0.0,0.05)
         # plt.ylim(0.0,20000)
-        plt.title('Actin speed boxsize ' + str(integer_boxsize))
+        plt.gca().ticklabel_format(scilimits = (-3,3))
+        plt.title('Boxsize ' + str(integer_boxsize))
         plt.tight_layout()
     animation = FuncAnimation(histogram_figure, animate, frames=len(boxsizes))
     animation.save(os.path.join(os.path.dirname(__file__),'output','boxsize_velocity_histograms.mp4'), dpi = 600) 
