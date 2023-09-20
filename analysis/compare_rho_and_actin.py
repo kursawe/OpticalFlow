@@ -181,15 +181,16 @@ def check_error_of_method():
 
 def make_boxsize_comparison():
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
-    actin_movie = actin_movie[0:3,:,:]
+    # actin_movie = actin_movie[0:3,:,:]
     x_dim = actin_movie.shape[1]
-    # boxsizes = np.linspace(5, x_dim, 3)
-    boxsizes = np.linspace(5, 7, 2)
+    print(x_dim)
+    boxsizes = np.linspace(3, x_dim/2, 50)
+    # boxsizes = np.linspace(5, 7, 2)
     mean_velocities = np.zeros_like(boxsizes)
     velocities_std = np.zeros_like(boxsizes)
     histogram_figure = plt.figure(figsize = (2.5,2.5))
     def animate(index):
-        integer_boxsize = int(boxsizes[index])
+        integer_boxsize = round(boxsizes[index])
         this_result = optical_flow.conduct_optical_flow(actin_movie, boxsize = integer_boxsize, delta_x = 0.0913, delta_t = 10.0)
         this_mean_speed = np.mean(this_result['speed'])
         this_speed_std = np.std(this_result['speed'])
@@ -200,7 +201,7 @@ def make_boxsize_comparison():
         plt.xlabel('Actin Speed [$\mathrm{\mu m}$/s]')
         plt.ylabel('Number of Pixels')
         plt.xlim(0.0,0.05)
-        plt.ylim(0.0,20000)
+        # plt.ylim(0.0,20000)
         plt.title('Actin speed boxsize ' + str(integer_boxsize))
         plt.tight_layout()
     animation = FuncAnimation(histogram_figure, animate, frames=len(boxsizes))
