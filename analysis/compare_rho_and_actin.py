@@ -202,7 +202,7 @@ def make_boxsize_comparison():
         plt.xlabel('Actin Speed [$\mathrm{\mu m}$/s]')
         plt.ylabel('Number of Pixels')
         plt.xlim(0.0,0.02)
-        plt.ylim(0.0,70000)
+        plt.ylim(0.0,700000)
         plt.gca().ticklabel_format(scilimits = (-3,3))
         plt.title('Boxsize ' + str(integer_boxsize))
         plt.tight_layout()
