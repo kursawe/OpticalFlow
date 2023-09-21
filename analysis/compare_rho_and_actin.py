@@ -184,7 +184,7 @@ def make_boxsize_comparison():
     # actin_movie = actin_movie[0:3,:,:]
     x_dim = actin_movie.shape[1]
     print(x_dim)
-    boxsizes = np.linspace(3, x_dim/2, 50)
+    boxsizes = np.linspace(3, 101, 50)
     # boxsizes = np.linspace(5, 7, 2)
     mean_velocities = np.zeros_like(boxsizes)
     velocities_std = np.zeros_like(boxsizes)
