@@ -1,6 +1,7 @@
 import sys
 import os
 import skimage.io
+import skimage.filters
 import numpy as np
 import matplotlib.pyplot as plt
 font = {'size'   : 10,
@@ -13,16 +14,156 @@ from matplotlib.animation import FuncAnimation
 sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
 
+delta_x = 0.0913
+delta_t = 10.0
+
+def make_joint_movie():
+    
+    rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
+    actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    
+    fig = plt.figure(figsize = (4.5,2.5))
+    def animate(i): 
+        # plt.cla()
+        plt.subplot(121)
+        # plt.gca().set_axis_off()
+        plt.title('Rho')
+        optical_flow.costum_imshow(rho_movie[i,:,:],delta_x = delta_x)
+        plt.subplot(122)
+        plt.title('Actin')
+        optical_flow.costum_imshow(actin_movie[i,:,:],delta_x = delta_x)
+        # plt.imshow(actin_movie[i,:,:],cmap = 'gray_r',vmin = 0, vmax = 255, interpolation = None)
+        # plt.gca().set_axis_off()
+        if i <1:
+            plt.tight_layout()#make sure all lables fit in the frame
+        # plt.savefig(os.path.join(os.path.dirname(__file__),'output','joint_movie' + str(i) + '.png'),dpi=300) 
+    ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie.mp4'),dpi=300) 
+    
+def make_coexpression_movie(normalised = False):
+    rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
+    actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    
+    if normalised:
+        rho_movie = rho_movie/np.max(rho_movie)*255
+        actin_movie = actin_movie/np.max(rho_movie)*255
+
+    joint_movie = np.zeros((rho_movie.shape[0], rho_movie.shape[1], rho_movie.shape[2], 3),dtype = 'int')
+    joint_movie[:,:,:,0] = np.round(rho_movie[:,:,:])
+    joint_movie[:,:,:,1] = np.round(actin_movie[:,:,:])
+
+    fig = plt.figure(figsize = (2.5,2.5))
+    def animate(i): 
+        plt.cla()
+        plt.imshow(joint_movie[i,:,:], interpolation = None)
+        plt.gca().set_axis_off()
+        if i <1:
+            plt.tight_layout()#make sure all lables fit in the frame
+    ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
+    if normalised:
+        filename = 'coexpression_normalised.mp4'
+    else:
+        filename = 'coexpression_unnormalised.mp4'
+    ani.save(os.path.join(os.path.dirname(__file__),'output',filename),dpi=300) 
+ 
+def make_blurring_analysis(channel = 'actin'):
+
+    if channel == 'rho':
+        movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
+    elif channel == 'actin':
+        movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    
+    this_frame = movie[3,:,:]
+    this_frame_rgb = np.zeros((this_frame.shape[0], this_frame.shape[1], 3),dtype = 'int')
+    this_frame_rgb[:,:,0] = 255 - this_frame
+    this_frame_rgb[:,:,1] = 255 - this_frame
+    this_frame_rgb[:,:,2] = 255 - this_frame
+    
+    Xpixels=this_frame.shape[0]#Number of X pixels=379
+    Ypixels=this_frame.shape[1]#Number of Y pixels=279
+    x_extent = Xpixels * delta_x
+    y_extent = Ypixels * delta_x
+
+    x_position = 12.0
+    x_index_for_line = round(x_position/x_extent*this_frame.shape[0])
+    highlighted_line = this_frame[x_index_for_line,:]
+    this_frame_rgb[x_index_for_line,:,0] = 0
+    this_frame_rgb[x_index_for_line,:,2] = 0
+    y_positions_on_line = np.arange(0,this_frame.shape[1],1)*delta_x
+
+    original_histogram, bin_edges = np.histogram(this_frame.flatten(), range = (0,255), bins=255)
+    bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
+    original_histogram = original_histogram/np.max(original_histogram)
+
+    # blur_sizes = np.arange(0.1,5,0.01)
+    blur_sizes = np.arange(0.1,5,0.01)
+    # blur_sizes = np.arange(0.1,5,2.5)
+    
+    fig = plt.figure(figsize = (4.5,4.5), constrained_layout = True)
+    def animate_blurr(index):
+        plt.clf()
+        outer_grid = fig.add_gridspec(2,2,hspace = 0.1)
+        left_grid = outer_grid[1,0].subgridspec(2,1)
+        fig.suptitle('Blur with $\mathrm{\sigma}$=' + "{:.2f}".format(blur_sizes[index]) )
+        this_filtered_image = skimage.filters.gaussian(this_frame, sigma =blur_sizes[index], preserve_range = True)
+        this_histogram, _ = np.histogram(this_filtered_image.flatten(), range = (0,255), bins=255)
+        this_histogram = this_histogram.astype('float')
+        this_histogram/= np.max(this_histogram)
+        this_filtered_line = this_filtered_image[x_index_for_line]
+        # ax1 = plt.subplot2grid((4, 2), (0, 0), colspan=1, rowspan =2)
+        ax1 = fig.add_subplot(outer_grid[0,0], anchor = (0.75,1.0))
+        ax1.imshow(this_frame_rgb, extent = [0,y_extent, x_extent, 0], interpolation = None )
+        ax1.set_xlabel("y-position [$\mathrm{\mu}$m]")
+        ax1.set_ylabel("x-position [$\mathrm{\mu}$m]")
+        # ax2 = plt.subplot2grid((4, 2), (0, 1), colspan=1, rowspan =2)
+        ax2 = fig.add_subplot(outer_grid[0,1])
+        # plt.imshow(this_filtered_image, cmap = 'gray_r', extent = [0,y_extent, x_extent, 0], interpolation = None )
+        # plt.xlabel("y-position [$\mathrm{\mu}$m]")
+        # plt.ylabel("x-position [$\mathrm{\mu}$m]")
+        optical_flow.costum_imshow(this_filtered_image, delta_x = delta_x)
+        # ax3 = plt.subplot2grid((4, 2), (2, 0), colspan=1, rowspan =1)
+        ax3 = fig.add_subplot(left_grid[0,0])
+        # ax3.plot(y_positions_on_line,highlighted_line, color = 'green', alpha = 0.5, linewidth = 0.1)
+        # ax3.plot(y_positions_on_line,this_filtered_line, linewidth =0.1)
+        ax3.step(y_positions_on_line,highlighted_line, color = 'green', alpha = 0.6, linewidth = 0.15)
+        ax3.step(y_positions_on_line,this_filtered_line, linewidth =0.2, where = 'mid')
+        ax3.set_ylabel('Intensity')
+        # ax4 = plt.subplot2grid((4, 2), (3, 0), colspan=1, rowspan =1)
+        ax4 = fig.add_subplot(left_grid[1,0])
+        # ax4.plot(y_positions_on_line,highlighted_line, color = 'green', alpha = 0.5, linewidth = 0.1)
+        # ax4.plot(y_positions_on_line,this_filtered_line, linewidth =0.1)
+        ax4.step(y_positions_on_line,highlighted_line, color = 'green', alpha = 0.6, linewidth = 0.15, where = 'mid' )
+        ax4.step(y_positions_on_line,this_filtered_line, linewidth =0.2, where = 'mid')
+        ax4.set_xlabel('y-position [$\mathrm{\mu}$m]')
+        ax4.set_ylabel('Intensity')
+        ax4.set_xlim(5,15)
+        ax5 = fig.add_subplot(outer_grid[1,1], anchor = (0.5,4.5), box_aspect = 1.1)
+        # ax4 = plt.subplot2grid((4, 2), (2, 1), colspan=1, rowspan =2)
+        ax5.bar(bin_centers, this_histogram, width = 1.0)
+        ax5.bar(bin_centers, original_histogram, width = 1.0, color = 'grey', alpha = 0.8)
+        # ax4.hist(this_frame.flatten(),bins=255, range = (0,255), color = 'grey', alpha = 0.3, density = True)
+        # ax5.hist(this_filtered_image.flatten(),bins=255, range = (0,255), density = True )
+        ax5.set_xlim(0,120)
+        ax5.set_xlabel('Image intensity')
+        ax5.set_ylabel('Normalised occupancy')
+        # ax5_bounds = ax5.get_position().bounds
+        # ax5.set_position([ax5_bounds[0], ax5_bounds[1], ax5_bounds[2], ax5_bounds[3]])
+        # if index <1:
+            # plt.tight_layout()
+    animation = FuncAnimation(fig, animate_blurr, frames=len(blur_sizes))
+    animation.save(os.path.join(os.path.dirname(__file__),'output','blur_analysis_' + channel + '.mp4'),dpi=300) 
+    
 def make_and_save_rho_optical_flow():
     
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
-    this_result = optical_flow.conduct_optical_flow(rho_movie, delta_x = 0.0913, delta_t = 10.0)
+    this_result = optical_flow.conduct_optical_flow(rho_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 2.5)
     
     np.save(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'), this_result)
 
 def make_and_save_actin_optical_flow():
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
-    this_result = optical_flow.conduct_optical_flow(actin_movie, delta_x = 0.0913, delta_t = 10.0)
+    this_result = optical_flow.conduct_optical_flow(actin_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 2.5)
     
     np.save(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'), this_result)
     
@@ -85,11 +226,11 @@ def make_actin_speed_histograms():
 def visualise_actin_and_rho_velocities():
     actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'),allow_pickle='TRUE').item()
     optical_flow.make_velocity_overlay_movie(actin_flow_result, 
-                                             os.path.join(os.path.dirname(__file__),'output','actin_velocities.mp4'),arrow_scale = 5.0, boxsize = 15)
+                                             os.path.join(os.path.dirname(__file__),'output','actin_velocities.mp4'),arrow_scale = 1.0, boxsize = 15)
 
     rho_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'),allow_pickle='TRUE').item()
     optical_flow.make_velocity_overlay_movie(rho_flow_result, 
-                                             os.path.join(os.path.dirname(__file__),'output','rho_velocities.mp4'), boxsize = 15, arrow_scale = 5.0)
+                                             os.path.join(os.path.dirname(__file__),'output','rho_velocities.mp4'), boxsize = 15, arrow_scale = 1.0)
 
 @jit(nopython = True)
 def make_fake_data_frame(x_position, y_position):
@@ -269,10 +410,15 @@ def investigate_actin_intensity():
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','rho_intensity_histogram.pdf'))
  
 if __name__ == '__main__':
-    # make_and_save_rho_optical_flow()
-    # make_and_save_actin_optical_flow()
-    # visualise_actin_and_rho_velocities()
+    make_and_save_rho_optical_flow()
+    make_and_save_actin_optical_flow()
+    visualise_actin_and_rho_velocities()
     # investigate_actin_intensity()
     # make_actin_speed_histograms()
     # check_error_of_method()
-    make_boxsize_comparison()
+    # make_boxsize_comparison()
+    # make_joint_movie()
+    # make_coexpression_movie()
+    # make_coexpression_movie(normalised = True)
+    # make_blurring_analysis(channel = 'actin')
+    # make_blurring_analysis(channel = 'rho')

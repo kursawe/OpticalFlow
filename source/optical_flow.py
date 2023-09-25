@@ -5,6 +5,7 @@ font = {'size'   : 10,
         'sans-serif' : 'Arial'}
 plt.rc('font', **font)
 from matplotlib.animation import FuncAnimation
+import skimage.filters
 
 @jit(nopython=True, error_model = "numpy")
 def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0):
@@ -86,10 +87,21 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
         v_y*= delta_x/delta_t_data
         speed*=delta_x/delta_t_data
         
-    return all_v_x, all_v_y, all_speed, movie
+    return all_v_x, all_v_y, all_speed
 
-def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0):
-    all_v_x, all_v_y, all_speed, movie = conduct_optical_flow_jit(movie, boxsize, delta_x, delta_t)
+def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None):
+    
+    if smoothing_sigma is not None:
+        movie_to_analyse = np.zeros_like(movie, dtype ='double')
+        for index in range(movie.shape[0]):
+            this_frame = movie[index,:,:]
+            this_blurred_image = skimage.filters.gaussian(this_frame, sigma =smoothing_sigma, preserve_range = True)
+            movie_to_analyse[index,:,:] = this_blurred_image
+    else:
+        movie_to_analyse = movie
+
+
+    all_v_x, all_v_y, all_speed = conduct_optical_flow_jit(movie_to_analyse, boxsize, delta_x, delta_t)
     result = dict()
     result['v_x'] = all_v_x
     result['v_y'] = all_v_y
@@ -97,9 +109,26 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0):
     result['original_data'] = movie
     result['delta_x'] = delta_x
     result['delta_t'] = delta_t
+    result['blurred_data'] = movie_to_analyse
 
     return result
     
+def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale_image = False):
+    if autoscale_image:
+        v_min = None
+        v_max = None
+    else: 
+        v_min = 0.0
+        v_max = 255.0
+
+    Xpixels=image.shape[0]#Number of X pixels=379
+    Ypixels=image.shape[1]#Number of Y pixels=279
+    x_extent = Xpixels * delta_x
+    y_extent = Ypixels * delta_x
+    plt.imshow(image,cmap = cmap, extent = [0,y_extent, x_extent, 0], vmin = v_min, vmax = v_max, interpolation = None)
+    plt.xlabel("y-position [$\mathrm{\mu}$m]")
+    plt.ylabel("x-position [$\mathrm{\mu}$m]")
+ 
 def make_velocity_overlay_movie(flow_result,filename, boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', autoscale_image = False, arrow_color = 'magenta'):   
     """Plot a optical flow velocity result
     
