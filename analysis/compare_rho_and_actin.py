@@ -3,6 +3,7 @@ import os
 import skimage.io
 import skimage.filters
 import numpy as np
+import matplotlib.ticker
 import matplotlib.pyplot as plt
 font = {'size'   : 10,
         'sans-serif' : 'Arial'}
@@ -17,11 +18,24 @@ import optical_flow
 delta_x = 0.0913
 delta_t = 10.0
 
-def make_joint_movie():
+def make_joint_movie(smoothing_sigma = None):
     
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
-    
+
+    if smoothing_sigma is not None:
+        actin_movie_to_analyse = np.zeros_like(actin_movie, dtype ='double')
+        rho_movie_to_analyse = np.zeros_like(rho_movie, dtype ='double')
+        for index in range(actin_movie.shape[0]):
+            this_actin_frame = actin_movie[index,:,:]
+            this_blurred_actin_image = skimage.filters.gaussian(this_actin_frame, sigma =smoothing_sigma, preserve_range = True)
+            actin_movie_to_analyse[index,:,:] = this_blurred_actin_image
+            this_rho_frame = actin_movie[index,:,:]
+            this_blurred_rho_image = skimage.filters.gaussian(this_rho_frame, sigma =smoothing_sigma, preserve_range = True)
+            rho_movie_to_analyse[index,:,:] = this_blurred_rho_image
+        rho_movie = rho_movie_to_analyse
+        actin_movie = actin_movie_to_analyse
+ 
     fig = plt.figure(figsize = (4.5,2.5))
     def animate(i): 
         # plt.cla()
@@ -39,7 +53,7 @@ def make_joint_movie():
         # plt.savefig(os.path.join(os.path.dirname(__file__),'output','joint_movie' + str(i) + '.png'),dpi=300) 
     ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
     # ani = FuncAnimation(fig, animate, frames=3)
-    ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie.mp4'),dpi=300) 
+    ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie_sigma_' + "{:.2f}".format(smoothing_sigma) + '.mp4'),dpi=300) 
     
 def make_coexpression_movie(normalised = False):
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
@@ -226,11 +240,11 @@ def make_actin_speed_histograms():
 def visualise_actin_and_rho_velocities():
     actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'),allow_pickle='TRUE').item()
     optical_flow.make_velocity_overlay_movie(actin_flow_result, 
-                                             os.path.join(os.path.dirname(__file__),'output','actin_velocities.mp4'),arrow_scale = 1.0, boxsize = 15)
+                                             os.path.join(os.path.dirname(__file__),'output','actin_velocities.mp4'),arrow_scale = 1.0, arrow_boxsize = 15)
 
     rho_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'),allow_pickle='TRUE').item()
     optical_flow.make_velocity_overlay_movie(rho_flow_result, 
-                                             os.path.join(os.path.dirname(__file__),'output','rho_velocities.mp4'), boxsize = 15, arrow_scale = 1.0)
+                                             os.path.join(os.path.dirname(__file__),'output','rho_velocities.mp4'), arrow_boxsize = 15)
 
 @jit(nopython = True)
 def make_fake_data_frame(x_position, y_position):
@@ -350,8 +364,6 @@ def make_boxsize_comparison():
     animation = FuncAnimation(histogram_figure, animate, frames=len(boxsizes))
     animation.save(os.path.join(os.path.dirname(__file__),'output','boxsize_velocity_histograms.mp4'), dpi = 600) 
     
-    print(velocities_std)
-
     plt.figure(figsize = (4.5,2.5))
     plt.subplot(121)
     plt.plot(boxsizes.astype('int'), mean_velocities)
@@ -364,60 +376,185 @@ def make_boxsize_comparison():
     plt.tight_layout()
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','boxsize_velocities.pdf')) 
 
-def investigate_actin_intensity():
+def investigate_intensities():
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     
-    plt.figure(figsize = (2.5,2.5))
+    plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    plt.subplot(121)
     plt.hist(actin_movie.flatten(),bins=255, range = (0,255))
     plt.xlabel('Actin intensity value')
-    plt.ylabel('number of pixels')
-    plt.tight_layout()
-    plt.savefig(os.path.join(os.path.dirname(__file__),'output','actin_intensity_histogram.pdf'))
+    plt.ylabel('Number of pixels')
     
-    mean_intensity = np.mean(actin_movie)
-    print('mean intensity is')
-    print(mean_intensity)
-    print('stdev of intensity is')
-    print(np.std(actin_movie))
-    mean_intensity = np.mean(actin_movie)
-    
-    unique_intensity_values = np.unique(actin_movie)
-    print('there are ' + str(len(unique_intensity_values)) + ' unique intensity values present in the image')
-    print('these are')
-    print(unique_intensity_values)
-
-    cmap = 'gray_r'
-    v_min = 0
-    v_max = 255
-    Xpixels=actin_movie.shape[1]#Number of X pixels=379
-    Ypixels=actin_movie.shape[2]#Number of Y pixels=279
-    x_extent = Xpixels * 0.0913
-    y_extent = Ypixels * 0.0913
-    plt.figure(figsize = (2.5,2.5))
-    plt.imshow(actin_movie[0,:,:],cmap = cmap, extent = [0,y_extent, x_extent, 0], vmin = v_min, vmax = v_max, interpolation = None)
-    plt.xlabel("y-position [$\mathrm{\mu}$m]")
-    plt.ylabel("x-position [$\mathrm{\mu}$m]")
-    plt.tight_layout()
-    plt.savefig(os.path.join(os.path.dirname(__file__),'output','actin_frame_0.png'), dpi = 600)
-
-    # also make a histogram for rho
+    plt.subplot(122)
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
-    plt.figure(figsize = (2.5,2.5))
     plt.hist(rho_movie.flatten(),bins=255, range = (0,255))
     plt.xlabel('Rho intensity value')
-    plt.ylabel('number of pixels')
+    plt.ylabel('Number of pixels')
+    plt.savefig(os.path.join(os.path.dirname(__file__),'output','both_intensity_histgrams.pdf'))
+ 
+def make_OF_blur_analysis(channel = 'actin'):
+
+    if channel == 'rho':
+        movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
+    elif channel == 'actin':
+        movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    
+    # blur_sizes = np.arange(0.1,5,0.01)
+    # blur_sizes = np.arange(0.1,5.0,0.01)
+    blur_sizes = np.arange(0.5,15,0.1)
+    
+    mean_velocities = np.zeros_like(blur_sizes, dtype = 'float')
+    velocities_std = np.zeros_like(blur_sizes, dtype = 'float')
+
+    fig = plt.figure(figsize = (4.5,4.5), constrained_layout = True)
+    def animate_blursizes(index):
+        plt.clf()
+        blursize = blur_sizes[index]
+        blursize_in_micro_meters = blursize*delta_x
+        fig.suptitle('Blur $\mathrm{\sigma}$=' + "{:.2f}".format(blursize) + r' ($\approx$' + "{:.2f}".format(blursize_in_micro_meters) + '$\mathrm{\mu}$m)' )
+        this_result = optical_flow.conduct_optical_flow(movie[3:5,:,:], boxsize = 21, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = blursize)
+        cos_values = this_result['v_y']/this_result['speed']
+        angles = np.arccos(cos_values)*np.sign(this_result['v_x'])
+        x_positions, y_positions, v_x, v_y = optical_flow.subsample_velocities_for_visualisation(this_result, arrow_boxsize = 15)
+        this_mean_speed = np.mean(this_result['speed'])
+        this_speed_std = np.std(this_result['speed'])
+        mean_velocities[index] = this_mean_speed
+        velocities_std[index] = this_speed_std
+
+        outer_grid = fig.add_gridspec(2,2)
+        right_grid = outer_grid[1,1].subgridspec(2,1)
+
+        ax1 = fig.add_subplot(outer_grid[0,0])
+        ax1.set_title('blur hidden')
+        optical_flow.costum_imshow(movie[4,:,:], delta_x = delta_x)
+        ax1.quiver(y_positions, x_positions, v_x[0,:,:], -v_y[0,:,:], color = 'magenta',headwidth=5, scale = None)
+
+        ax2 = fig.add_subplot(outer_grid[0,1])
+        ax2.set_title('blur visible')
+        optical_flow.costum_imshow(this_result['blurred_data'][1,:,:], delta_x = delta_x)
+        ax2.quiver(y_positions, x_positions, v_x[0,:,:], -v_y[0,:,:], color = 'magenta',headwidth=5, scale = None)
+
+        ax2 = fig.add_subplot(outer_grid[1,0])
+        ax2.hist(this_result['speed'].flatten(), bins = 50, density = False)
+        ax2.ticklabel_format(scilimits = (-3,3))
+        ax2.set_xlabel('Actin Speed [$\mathrm{\mu m}$/s]')
+        # plt.xlim((0,0.02))
+        ax2.set_ylabel('Number of Pixels')
+        
+        ax3 = fig.add_subplot(right_grid[0,0])
+        ax3.hist(angles.flatten()/np.pi, bins = 50, range = (-1,1), density = False)
+        ax3.ticklabel_format(scilimits = (-3,3))
+        # ax3.xaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter(r'%g$\mathrm{\pi}$'))
+        # ax3.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(base=0.5))
+        ax3.set_xlabel('Angle to y axis')
+        ax3.set_ylabel('# Pixels')
+        
+        ax4 = fig.add_subplot(right_grid[1,0], sharex = ax3)
+        ax4.hist(angles.flatten()/np.pi, bins = 50, density = False, weights = this_result['speed'].flatten())
+        ax4.ticklabel_format(scilimits = (-3,3))
+        ax4.xaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter(r'%g$\mathrm{\pi}$'))
+        ax4.xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(base=0.5))
+        ax4.set_xlabel('Weighted angle to y axis')
+        ax4.set_ylabel('# Pixels')
+        
+    animation = FuncAnimation(fig, animate_blursizes, frames=len(blur_sizes))
+    animation.save(os.path.join(os.path.dirname(__file__),'output','blursize_analysis_' + channel + '.mp4'),dpi=300) 
+
+    plt.figure(figsize = (4.5,2.5))
+    plt.subplot(121)
+    plt.plot(blur_sizes, mean_velocities)
+    plt.xlabel('blursize')
+    plt.ylabel('mean speed [$\mathrm{\mu m}$/s]')
+    plt.subplot(122)
+    plt.plot(blur_sizes, velocities_std)
+    plt.xlabel('blursize')
+    plt.ylabel('speed standard dev. [$\mathrm{\mu m}$/s]')
     plt.tight_layout()
-    plt.savefig(os.path.join(os.path.dirname(__file__),'output','rho_intensity_histogram.pdf'))
+    plt.savefig(os.path.join(os.path.dirname(__file__),'output','blursize_velocities.pdf')) 
+ 
+def make_boxsize_analysis(channel = 'actin'):
+
+    if channel == 'rho':
+        movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
+    elif channel == 'actin':
+        movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    
+    boxsizes = np.arange(5,150,2).astype('int')
+    # boxsizes = np.arange(5,56,50).astype('int')
+    
+    mean_velocities = np.zeros_like(boxsizes, dtype = 'float')
+    velocities_std = np.zeros_like(boxsizes, dtype = 'float')
+
+    fig = plt.figure(figsize = (4.5,4.5), constrained_layout = True)
+    def animate_boxsizes(index):
+        plt.clf()
+        boxsize = boxsizes[index]
+        boxsize_in_micro_meters = boxsize*delta_x
+        fig.suptitle('Boxsize b=' + str(boxsize) + r' ($\approx$' + "{:.2f}".format(boxsize_in_micro_meters) + '$\mathrm{\mu}$m)' )
+        this_result = optical_flow.conduct_optical_flow(movie[3:5,:,:], boxsize = boxsizes[index], delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 1.3)
+        cos_values = this_result['v_y']/this_result['speed']
+        angles = np.arccos(cos_values)*np.sign(this_result['v_x'])
+        x_positions, y_positions, v_x, v_y = optical_flow.subsample_velocities_for_visualisation(this_result, arrow_boxsize = 15)
+        this_mean_speed = np.mean(this_result['speed'])
+        this_speed_std = np.std(this_result['speed'])
+        mean_velocities[index] = this_mean_speed
+        velocities_std[index] = this_speed_std
+
+        plt.subplot(221)
+        optical_flow.costum_imshow(movie[4,:,:], delta_x = delta_x)
+        plt.quiver(y_positions, x_positions, v_x[0,:,:], -v_y[0,:,:], color = 'magenta',headwidth=5, scale = None)
+
+        plt.subplot(222)
+        plt.hist(this_result['speed'].flatten(), bins = 50, density = False)
+        plt.gca().ticklabel_format(scilimits = (-3,3))
+        plt.xlabel('Actin Speed [$\mathrm{\mu m}$/s]')
+        # plt.xlim((0,0.02))
+        plt.ylabel('Number of Pixels')
+        
+        plt.subplot(223)
+        plt.hist(angles.flatten()/np.pi, bins = 50, range = (-1,1), density = False)
+        plt.gca().ticklabel_format(scilimits = (-3,3))
+        plt.gca().xaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter(r'%g$\mathrm{\pi}$'))
+        plt.gca().xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(base=0.5))
+        plt.xlabel('Angle to y axis')
+        plt.ylabel('Number of Pixels')
+        
+        plt.subplot(224)
+        plt.hist(angles.flatten()/np.pi, bins = 50, density = False, weights = this_result['speed'].flatten())
+        plt.gca().ticklabel_format(scilimits = (-3,3))
+        plt.gca().xaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter(r'%g$\mathrm{\pi}$'))
+        plt.gca().xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(base=0.5))
+        plt.xlabel('Weighted angle to y axis')
+        plt.ylabel('Number of Pixels')
+        
+    animation = FuncAnimation(fig, animate_boxsizes, frames=len(boxsizes))
+    animation.save(os.path.join(os.path.dirname(__file__),'output','boxsize_analysis_' + channel + '.mp4'),dpi=300) 
+
+    plt.figure(figsize = (4.5,2.5))
+    plt.subplot(121)
+    plt.plot(boxsizes, mean_velocities)
+    plt.xlabel('boxsize')
+    plt.ylabel('mean speed [$\mathrm{\mu m}$/s]')
+    plt.subplot(122)
+    plt.plot(boxsizes, velocities_std)
+    plt.xlabel('boxsize')
+    plt.ylabel('speed standard dev. [$\mathrm{\mu m}$/s]')
+    plt.tight_layout()
+    plt.savefig(os.path.join(os.path.dirname(__file__),'output','new_boxsize_velocities.pdf')) 
  
 if __name__ == '__main__':
-    make_and_save_rho_optical_flow()
-    make_and_save_actin_optical_flow()
-    visualise_actin_and_rho_velocities()
+    # make_and_save_rho_optical_flow()
+    # make_and_save_actin_optical_flow()
+    # visualise_actin_and_rho_velocities()
+    make_boxsize_analysis()
+    make_OF_blur_analysis()
     # investigate_actin_intensity()
+
     # make_actin_speed_histograms()
     # check_error_of_method()
     # make_boxsize_comparison()
-    # make_joint_movie()
+    # make_joint_movie(smoothing_sigma = 19)
     # make_coexpression_movie()
     # make_coexpression_movie(normalised = True)
     # make_blurring_analysis(channel = 'actin')
