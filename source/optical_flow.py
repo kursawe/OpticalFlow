@@ -9,6 +9,39 @@ import skimage.filters
 
 @jit(nopython=True, error_model = "numpy")
 def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0):
+    """This is a helper method for conduct_optical_flow below. It ensures that the actual
+       optical flow calculations are conducted with numba just-in-time compiled code.
+       
+       Resulting data of v_x, v_y and speed have one less frame than the movie, and the ith frame
+       was calculated from the difference between frame i-1 and frame i
+       
+    Parameters :
+    ------------
+
+    movie : np.array
+        the movie we wish to analyse
+    
+    boxsize : int
+        the boxsize for the optical flow algorithm. If an even number is provided, the next smallest uneven number will be used.
+
+    delta_x : float
+        the size of one pixel in the movie. We assume pixel size is identical in the x and y directions
+
+    delta_t : float
+        the time interval between frames in the movie. Defaults to 1.0. 
+        
+    Returns :
+    ---------
+    
+    v_x : np array
+        The calculated x-velocities at each pixel
+
+    v_y : np array
+        The calculated y-velocities at each pixel
+
+    speed : np array
+        The speed at each pixel
+    """
     
     # movie = np.array(movie, dtype = np.float64)
     movie = movie.astype(np.float64)
@@ -18,11 +51,8 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
     delta_t_data = delta_t
     delta_t = 1
     number_of_frames = movie.shape[0]
-    #Nb = int((1024-2)/box_size)#Number of boxes
-    Xpixels=movie.shape[1]#Number of X pixels=379
-    Ypixels=movie.shape[2]#Number of Y pixels=279
-    # all_v_x = np.zeros((number_of_frames-1,Nbx*box_size,Nby*box_size))
-    # all_v_y = np.zeros((number_of_frames-1,Nbx*box_size,Nby*box_size))
+    Xpixels=movie.shape[1]#Number of X pixels
+    Ypixels=movie.shape[2]#Number of Y pixels
     all_v_x = np.zeros((number_of_frames-1,Xpixels,Ypixels))
     all_v_y = np.zeros((number_of_frames-1,Xpixels,Ypixels))
     #get average speed of each frame:|v|=np.sqrt(Vx**2+Vy**2), np.mean(V)
@@ -40,13 +70,8 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
         dIdx[1:-1,1:-1] = dIdx_calc
         dIdy[1:-1,1:-1] = dIdy_calc
 
-        delta_I_too_big = current_frame-previous_frame
+        delta_I = current_frame-previous_frame
        
-        # delta_I = delta_I_too_big[1:Xpixels-1,1:Ypixels-1]#0-1024 in total
-        delta_I = delta_I_too_big#0-1024 in total
-        #In other words
-        ##delta_I = delta_I_too_big[1:-1,1:-1]
-        
         v_x = all_v_x[frame_index-1,:,:]
         v_y = all_v_y[frame_index-1,:,:]
         
@@ -88,16 +113,39 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
     return all_v_x, all_v_y, all_speed
 
 def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None):
+    """Conduct optical flow as in Vig et al. Biophysical Journal 110, 1469–1475, 2016.
+    
+    Parameters:
+    -----------
+
+    movie : np.array
+        the movie we wish to analyse
+    
+    boxsize : int
+        the boxsize for the optical flow algorithm. If an even number is provided, the next smallest uneven number will be used.
+
+    delta_x : float
+        the size of one pixel in the movie. We assume pixel size is identical in the x and y directions
+
+    delta_t : float
+        the time interval between frames in the movie. Defaults to 1.0.
+        
+    smoothing_sigma : float or None
+        If the value None is provided, no smoothing will be applied. Otherwise a gaussian blur with this sigma value
+        will be applied to the movie before optical flow is conducted.
+
+    Returns:
+    --------
+
+    result : dict
+        A dictionary containing the results of optical flow calculations, as well as arrays for the orignal and blurred data.
+        The keys are: v_x, v_y, speed, original_data, blurred_data, delta_x, delta_t
+    """
     
     if smoothing_sigma is not None:
-        movie_to_analyse = np.zeros_like(movie, dtype ='double')
-        for index in range(movie.shape[0]):
-            this_frame = movie[index,:,:]
-            this_blurred_image = skimage.filters.gaussian(this_frame, sigma =smoothing_sigma, preserve_range = True)
-            movie_to_analyse[index,:,:] = this_blurred_image
+        movie_to_analyse = blur_movie(movie, smoothing_sigma=smoothing_sigma)
     else:
         movie_to_analyse = movie
-
 
     all_v_x, all_v_y, all_speed = conduct_optical_flow_jit(movie_to_analyse, boxsize, delta_x, delta_t)
     result = dict()
@@ -110,9 +158,57 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
     result['blurred_data'] = movie_to_analyse
 
     return result
+
+def blur_movie(movie, smoothing_sigma):
+    """"Blur a movie with the given sigma value.
     
-def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale_image = False):
-    if autoscale_image:
+    Parameters :
+    ------------
+    
+    movie : np array
+        The movie to be blurred. Needs to be a multi-frame single-channel movie 
+        
+    smoothing_sigma : float
+        The sigma value to be used in the Gaussian blur
+    
+    Returns :
+    ---------
+    
+    blurred_movie : np array
+        The blurred movie
+    """
+    blurred_movie = np.zeros_like(movie, dtype ='double')
+    for index in range(movie.shape[0]):
+        this_frame = movie[index,:,:]
+        this_blurred_image = skimage.filters.gaussian(this_frame, sigma =smoothing_sigma, preserve_range = True)
+        blurred_movie[index,:,:] = this_blurred_image
+    
+    return blurred_movie
+
+   
+def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False):
+    """Our typical way to show images. Will display the image without any anti-aliasing and add axis units and labels. 
+    Can be used for simulated images if autoscale is set to True. The figure and figure panels need to be created outside
+    of this function.
+    
+    Parameters :
+    ------------
+    
+    image : np array (2D)
+        The image we wish to display
+        
+    delta_x : float
+        the size of one pixel
+        
+    cmap : string
+        name of a matplotlib color map
+        
+    autoscale : bool
+        if True, the image will be displayed using matplotlib's autoscaling.
+        Otherwise, the image will be displayed using the scale (0,255)
+    
+    """
+    if autoscale:
         v_min = None
         v_max = None
     else: 
@@ -128,7 +224,8 @@ def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale_image = False):
     plt.ylabel("x-position [$\mathrm{\mu}$m]")
  
 def subsample_velocities_for_visualisation(flow_result, arrow_boxsize = 5):
-    """Generate arrows for plotting from a flow result.
+    """Generate arrows for plotting from a flow result. Will generate quantities that
+    can be passed to plt.quiver.
     
     Parameters :
     ------------
@@ -190,7 +287,7 @@ def subsample_velocities_for_visualisation(flow_result, arrow_boxsize = 5):
     return x_positions, y_positions, subsampled_v_x, subsampled_v_y
 
  
-def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', autoscale_image = False, arrow_color = 'magenta'):   
+def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', autoscale = False, arrow_color = 'magenta'):   
     """Plot a optical flow velocity result
     
     Parameters :
@@ -221,8 +318,8 @@ def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_s
     fig = plt.figure(figsize = (2.5,2.5))
     def animate(i): 
         plt.cla()
-        costum_imshow(movie[i,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale_image=autoscale_image)
-        plt.quiver(y_positions, x_positions, v_x[i,:,:], -v_y[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        costum_imshow(movie[i,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale)
+        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
         if i <1:
             plt.tight_layout()#make sure all lables fit in the frame
     ani = FuncAnimation(fig, animate, frames=movie.shape[0]-1)
