@@ -11,6 +11,7 @@ plt.rc('font', **font)
 import pandas as pd
 from numba import jit
 from matplotlib.animation import FuncAnimation
+from scipy.stats import gaussian_kde
 
 sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
@@ -51,6 +52,7 @@ def make_joint_movie(smoothing_sigma = None):
     ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie' + smoothing_string + '.mp4'),dpi=300) 
     
 def investigate_intensities():
+    """This makes a figure with the intensity histograms of both movies"""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     
@@ -72,6 +74,7 @@ def investigate_intensities():
     print(np.unique(actin_movie))
  
 def make_blurring_analysis(channel = 'actin'):
+    """This makes a movie to analise how the blurring affects the histogram and spatial intensity profile of one frame"""
 
     if channel == 'rho':
         movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
@@ -149,6 +152,7 @@ def make_blurring_analysis(channel = 'actin'):
     animation.save(os.path.join(os.path.dirname(__file__),'output','blur_analysis_' + channel + '.mp4'),dpi=300) 
  
 def investigate_intensity_thresholds():
+    """This function plots both histograms again, but using blurred data. It identifies the intensity value separating the two modes of the histogram"""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     
@@ -178,6 +182,7 @@ def investigate_intensity_thresholds():
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','both_intensity_histgrams_blurred.pdf'))
  
 def make_thresholded_movies():
+    """This function makes a movie with both channels, and in which pixel values below a certain intensity are coloured in green."""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     
@@ -212,6 +217,7 @@ def make_thresholded_movies():
  
 @jit(nopython = True)
 def make_fake_data_frame(x_position, y_position, include_noise = False):
+    """This is a helper function for making in silico data"""
     x_dim = 1000
     x = np.linspace(0,20,x_dim)#(0,10,100)0-10 100 samples uniform,np.linespace(start,stop,number)
     y = np.linspace(0,20,x_dim)
@@ -227,6 +233,8 @@ def make_fake_data_frame(x_position, y_position, include_noise = False):
     return frame, delta_x
 
 def check_error_of_method(include_noise = False):
+    """This makes a movie of with silico data and applies optical flow. It then saves a visualisation of the result
+    as a movie and makes some histograms."""
     
     x_velocity = 0.1
     y_velocity = 0.2
@@ -300,6 +308,7 @@ def check_error_of_method(include_noise = False):
                                              autoscale = True)
 
 def make_boxsize_analysis(channel = 'actin', blursize = 1.3):
+    """This function analyses how optical flow results depend on the boxsize. Makes a multi-panal movie and a number of additional figures."""
 
     if channel == 'rho':
         movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
@@ -407,6 +416,7 @@ def make_boxsize_analysis(channel = 'actin', blursize = 1.3):
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','boxsize_local_velocities_' + channel + '_blursize_' + str(blursize) + '.pdf'),dpi = 300) 
 
 def make_OF_blur_analysis(channel = 'actin', boxsize = 21):
+    """This function analyses how optical flow results depend on the boxsize. Makes a multi-panal movie and a number of additional figures."""
 
     if channel == 'rho':
         movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
@@ -537,6 +547,7 @@ def make_OF_blur_analysis(channel = 'actin', boxsize = 21):
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','blursize_local_velocities_' + channel + '_boxsize_' + str(boxsize) + '.pdf'),dpi = 300) 
 
 def make_and_save_rho_optical_flow():
+    """This function saves the optical flow result for rho"""
     
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     this_result = optical_flow.conduct_optical_flow(rho_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 3, boxsize = 31)
@@ -544,12 +555,14 @@ def make_and_save_rho_optical_flow():
     np.save(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'), this_result)
 
 def make_and_save_actin_optical_flow():
+    """This function saves the optical flow result for actin"""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
     this_result = optical_flow.conduct_optical_flow(actin_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 3, boxsize = 31)
     
     np.save(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'), this_result)
 
 def joint_actin_and_rho_flow_result(show_blurred=False):
+    """This function shows the optical flow result of channels in one movie, using the saved files from the functions above"""
     actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'),allow_pickle='TRUE').item()
     rho_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'),allow_pickle='TRUE').item()
 
@@ -580,38 +593,8 @@ def joint_actin_and_rho_flow_result(show_blurred=False):
 
     ani.save(os.path.join(os.path.dirname(__file__),'output',filename),dpi=300) 
 
-
-
-
-
-
-def make_coexpression_movie(normalised = False):
-    rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
-    actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
-    
-    if normalised:
-        rho_movie = rho_movie/np.max(rho_movie)*255
-        actin_movie = actin_movie/np.max(rho_movie)*255
-
-    joint_movie = np.zeros((rho_movie.shape[0], rho_movie.shape[1], rho_movie.shape[2], 3),dtype = 'int')
-    joint_movie[:,:,:,0] = np.round(rho_movie[:,:,:])
-    joint_movie[:,:,:,1] = np.round(actin_movie[:,:,:])
-
-    fig = plt.figure(figsize = (2.5,2.5))
-    def animate(i): 
-        plt.cla()
-        plt.imshow(joint_movie[i,:,:], interpolation = None)
-        plt.gca().set_axis_off()
-        if i <1:
-            plt.tight_layout()#make sure all lables fit in the frame
-    ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
-    if normalised:
-        filename = 'coexpression_normalised.mp4'
-    else:
-        filename = 'coexpression_unnormalised.mp4'
-    ani.save(os.path.join(os.path.dirname(__file__),'output',filename),dpi=300) 
- 
 def visualise_actin_and_rho_velocities():
+    """This function makes a velocity overlay from the saved results, but with one file for each channel"""
     actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'),allow_pickle='TRUE').item()
     optical_flow.make_velocity_overlay_movie(actin_flow_result, 
                                              os.path.join(os.path.dirname(__file__),'output','actin_velocities.mp4'),arrow_scale = 1.0, arrow_boxsize = 15)
@@ -621,6 +604,7 @@ def visualise_actin_and_rho_velocities():
                                              os.path.join(os.path.dirname(__file__),'output','rho_velocities.mp4'), arrow_boxsize = 15)
  
 def make_joint_speed_and_angle_histograms():
+    """This function analyses how the velocities of both channels correspond. It makes multiple figures."""
     actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'),allow_pickle='TRUE').item()
     rho_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'),allow_pickle='TRUE').item()
     
@@ -688,10 +672,45 @@ def make_joint_speed_and_angle_histograms():
     plt.gca().xaxis.set_major_locator(matplotlib.ticker.MultipleLocator(base=0.25))
     plt.ylabel('Density')
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','weighted_angle_value_histograms.pdf'),dpi=300) 
+
+    # both_speeds = np.vstack([actin_flow_result['speed'].flatten(),rho_flow_result['speed'].flatten()])
+    # color_value = gaussian_kde(both_speeds)(both_speeds)
+    plt.figure(figsize = (2.5, 2.5), constrained_layout = True)
+    plt.hist2d(actin_flow_result['speed'][rho_flow_result['speed']>0.01].flatten(), rho_flow_result['speed'][rho_flow_result['speed']>0.01].flatten(), bins = (50,50))
+    # plt.scatter(actin_flow_result['speed'].flatten(), rho_flow_result['speed'].flatten(), s= 0.1, c= color_value)
+    plt.xlabel('Actin speed [$\mathrm{\mu m}$/s]')
+    plt.ylabel('Rho speed [$\mathrm{\mu m}$/s]')
+    plt.savefig(os.path.join(os.path.dirname(__file__),'output','speed_correlation.png'),dpi=300) 
    
    
 #########################################################
 # Old code and things I tried but did not use in the end
+def make_coexpression_movie(normalised = False):
+    rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
+    actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    
+    if normalised:
+        rho_movie = rho_movie/np.max(rho_movie)*255
+        actin_movie = actin_movie/np.max(rho_movie)*255
+
+    joint_movie = np.zeros((rho_movie.shape[0], rho_movie.shape[1], rho_movie.shape[2], 3),dtype = 'int')
+    joint_movie[:,:,:,0] = np.round(rho_movie[:,:,:])
+    joint_movie[:,:,:,1] = np.round(actin_movie[:,:,:])
+
+    fig = plt.figure(figsize = (2.5,2.5))
+    def animate(i): 
+        plt.cla()
+        plt.imshow(joint_movie[i,:,:], interpolation = None)
+        plt.gca().set_axis_off()
+        if i <1:
+            plt.tight_layout()#make sure all lables fit in the frame
+    ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
+    if normalised:
+        filename = 'coexpression_normalised.mp4'
+    else:
+        filename = 'coexpression_unnormalised.mp4'
+    ani.save(os.path.join(os.path.dirname(__file__),'output',filename),dpi=300) 
+ 
 def make_actin_speed_histograms():
     actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','fake_flow_result.npy'),allow_pickle='TRUE').item()
     
@@ -794,29 +813,30 @@ def make_boxsize_comparison():
 if __name__ == '__main__':
 
     ## All figures follow here
-    make_joint_movie()
-    investigate_intensities()
-    make_blurring_analysis(channel = 'actin')
-    make_blurring_analysis(channel = 'rho')
-    investigate_intensity_thresholds()
-    make_thresholded_movies()
-    check_error_of_method()
-    check_error_of_method(include_noise = True)
-    make_boxsize_analysis(channel = 'actin')
-    make_boxsize_analysis(channel = 'actin', blursize = 2.5)
-    make_boxsize_analysis(channel = 'actin', blursize = 3)
-    make_boxsize_analysis(channel = 'actin', blursize = 4)
-    make_boxsize_analysis(channel = 'actin', blursize = 8)
-    make_OF_blur_analysis(channel = 'actin', boxsize = 31)
-    make_OF_blur_analysis(channel = 'rho', boxsize = 31)
-    make_OF_blur_analysis(channel = 'rho', boxsize = 21)
-    make_boxsize_analysis(channel = 'rho', blursize = 2.5)
-    make_boxsize_analysis(channel = 'rho', blursize = 3.0)
-    make_and_save_rho_optical_flow()
-    make_and_save_actin_optical_flow()
-    joint_actin_and_rho_flow_result()
-    joint_actin_and_rho_flow_result(show_blurred=True)
-    visualise_actin_and_rho_velocities()
+    # make_joint_movie()
+    # investigate_intensities()
+    # make_blurring_analysis(channel = 'actin')
+    # make_blurring_analysis(channel = 'rho')
+    # investigate_intensity_thresholds()
+    # make_thresholded_movies()
+    # check_error_of_method()
+    # check_error_of_method(include_noise = True)
+    # make_boxsize_analysis(channel = 'actin')
+    # make_OF_blur_analysis(channel = 'actin', boxsize = 21)
+    # make_boxsize_analysis(channel = 'actin', blursize = 2.5)
+    # make_boxsize_analysis(channel = 'actin', blursize = 3)
+    # make_boxsize_analysis(channel = 'actin', blursize = 4)
+    # make_boxsize_analysis(channel = 'actin', blursize = 8)
+    # make_OF_blur_analysis(channel = 'actin', boxsize = 31)
+    # make_OF_blur_analysis(channel = 'rho', boxsize = 31)
+    # make_OF_blur_analysis(channel = 'rho', boxsize = 21)
+    # make_boxsize_analysis(channel = 'rho', blursize = 2.5)
+    # make_boxsize_analysis(channel = 'rho', blursize = 3.0)
+    # make_and_save_rho_optical_flow()
+    # make_and_save_actin_optical_flow()
+    # joint_actin_and_rho_flow_result()
+    # joint_actin_and_rho_flow_result(show_blurred=True)
+    # visualise_actin_and_rho_velocities()
     make_joint_speed_and_angle_histograms()
 
     ## Additional function calls not included in the presentation
