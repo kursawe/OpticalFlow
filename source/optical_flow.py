@@ -6,6 +6,7 @@ font = {'size'   : 10,
 plt.rc('font', **font)
 from matplotlib.animation import FuncAnimation
 import skimage.filters
+import cv2
 
 @jit(nopython=True, error_model = "numpy")
 def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0):
@@ -112,7 +113,7 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
         
     return all_v_x, all_v_y, all_speed
 
-def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None):
+def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None, background = None):
     """Conduct optical flow as in Vig et al. Biophysical Journal 110, 1469–1475, 2016.
     
     Parameters:
@@ -124,6 +125,58 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
     boxsize : int
         the boxsize for the optical flow algorithm. If an even number is provided, the next smallest uneven number will be used.
 
+    delta_x : float
+        the size of one pixel in the movie. We assume pixel size is identical in the x and y directions
+
+    delta_t : float
+        the time interval between frames in the movie. Defaults to 1.0.
+        
+    smoothing_sigma : float or None
+        If the value None is provided, no smoothing will be applied. Otherwise a gaussian blur with this sigma value
+        will be applied to the movie before optical flow is conducted.
+
+    background : float or None
+        If the value None is provided, no background will be subtracted. Otherwise, the background level will be subtracted before optical flow is conducted.
+
+    Returns:
+    --------
+
+    result : dict
+        A dictionary containing the results of optical flow calculations, as well as arrays for the orignal and blurred data.
+        The keys are: v_x, v_y, speed, original_data, blurred_data, delta_x, delta_t
+    """
+    
+    if background is not None:
+        movie_for_thresholding = blur_movie(movie, smoothing_sigma=10)
+        movie_to_analyse = np.zeros_like(movie_for_thresholding)
+        movie_to_analyse[movie_for_thresholding > background] = movie[movie_for_thresholding>background]- background 
+    else: 
+        movie_to_analyse = movie
+
+    if smoothing_sigma is not None:
+        movie_to_analyse = blur_movie(movie_to_analyse, smoothing_sigma=smoothing_sigma)
+
+    all_v_x, all_v_y, all_speed = conduct_optical_flow_jit(movie_to_analyse, boxsize, delta_x, delta_t)
+    result = dict()
+    result['v_x'] = all_v_x
+    result['v_y'] = all_v_y
+    result['speed'] = all_speed
+    result['original_data'] = movie
+    result['delta_x'] = delta_x
+    result['delta_t'] = delta_t
+    result['blurred_data'] = movie_to_analyse
+
+    return result
+
+def conduct_opencv_flow(movie, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None):
+    """Conduct optical flow using the opencv library.
+    
+    Parameters:
+    -----------
+
+    movie : np.array
+        the movie we wish to analyse
+    
     delta_x : float
         the size of one pixel in the movie. We assume pixel size is identical in the x and y directions
 
@@ -147,17 +200,32 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
     else:
         movie_to_analyse = movie
 
-    all_v_x, all_v_y, all_speed = conduct_optical_flow_jit(movie_to_analyse, boxsize, delta_x, delta_t)
-    result = dict()
-    result['v_x'] = all_v_x
-    result['v_y'] = all_v_y
-    result['speed'] = all_speed
-    result['original_data'] = movie
-    result['delta_x'] = delta_x
-    result['delta_t'] = delta_t
-    result['blurred_data'] = movie_to_analyse
+    v_x = np.zeros((movie.shape[0]-1, movie.shape[1], movie.shape[2]))
+    v_y = np.zeros((movie.shape[0]-1, movie.shape[1], movie.shape[2]))
+    this_result = None
+    for frame_index in range(movie.shape[0]-1):
+        this_result = cv2.calcOpticalFlowFarneback(movie_to_analyse[frame_index,:,:], movie[frame_index + 1,:,:], this_result, 0.5, 
+                                                   levels = 3, winsize = 30, iterations = 20, poly_n = 5, poly_sigma = 1.5, flags = cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+        v_x[frame_index,:,:] = this_result[:,:,0]
+        v_y[frame_index,:,:] = this_result[:,:,1]
+        
+        this_result = - this_result
+        
+    v_x*= delta_x/delta_t
+    v_y*= delta_x/delta_t
+    
+    speed = np.sqrt(v_x**2 + v_y**2)
 
-    return result
+    flow_result = dict()
+    flow_result['v_x'] = v_x
+    flow_result['v_y'] = v_y
+    flow_result['speed'] = speed
+    flow_result['original_data'] = movie_to_analyse
+    flow_result['delta_x'] = delta_x
+    flow_result['delta_t'] = delta_t
+ 
+    return flow_result
+
 
 def blur_movie(movie, smoothing_sigma):
     """"Blur a movie with the given sigma value.
@@ -318,7 +386,7 @@ def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_s
     fig = plt.figure(figsize = (2.5,2.5))
     def animate(i): 
         plt.cla()
-        costum_imshow(movie[i,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale)
+        costum_imshow(movie[i+1,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale)
         plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
         if i <1:
             plt.tight_layout()#make sure all lables fit in the frame
