@@ -205,7 +205,7 @@ def conduct_opencv_flow(movie, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = N
     this_result = None
     for frame_index in range(movie.shape[0]-1):
         this_result = cv2.calcOpticalFlowFarneback(movie_to_analyse[frame_index,:,:], movie[frame_index + 1,:,:], this_result, 0.5, 
-                                                   levels = 3, winsize = 30, iterations = 20, poly_n = 5, poly_sigma = 1.5, flags = cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+                                                   levels = 5, winsize = 10, iterations = 40, poly_n = 5, poly_sigma = 10, flags = cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
         v_x[frame_index,:,:] = this_result[:,:,0]
         v_y[frame_index,:,:] = this_result[:,:,1]
         
@@ -228,7 +228,7 @@ def conduct_opencv_flow(movie, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = N
 
 
 def blur_movie(movie, smoothing_sigma):
-    """"Blur a movie with the given sigma value.
+    """Blur a movie with the given sigma value.
     
     Parameters :
     ------------
@@ -253,8 +253,44 @@ def blur_movie(movie, smoothing_sigma):
     
     return blurred_movie
 
+def apply_clahe(movie, clipLimit = 50000, tile_number = 10):
+    """Apply an opencv clahe to a video.
+    
+    Parameters :
+    ------------
+    
+    movie : np array
+        The movie to be blurred. Needs to be a multi-frame single-channel movie 
+        
+    clipLimit : float
+        The clipLimit argument of the opencv Clahe filter. Larger numbers mean more contrast, lower numbers
+        will keep the image closer to the original.
+
+    tile_number : int
+        number of tiles that is used in x-direction. The number of tiles in y-direction is scaled by the y/x aspect ratio
+        so that tiles are approximately square.
+        
+    Returns :
+    ---------
+    
+    clahed_movie : np array
+        The movie after clahe application on each image
+    """
+    clahed_movie = np.zeros_like(movie, dtype ='double')
+    converted_movie = movie.astype(dtype = np.uint16)
+    aspect_ratio = movie.shape[2]/ movie.shape[1]
+    clahe_filter = cv2.createCLAHE(clipLimit=clipLimit, tileGridSize=(tile_number,round(tile_number*aspect_ratio)))
+    for index in range(movie.shape[0]):
+        this_frame = converted_movie[index,:,:]
+        this_clahed_image = clahe_filter.apply(this_frame)
+        clahed_movie[index,:,:] = this_clahed_image
+        
+    print(np.max(clahed_movie))
+    
+    return clahed_movie
+
    
-def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False):
+def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.0, v_max = 255.0):
     """Our typical way to show images. Will display the image without any anti-aliasing and add axis units and labels. 
     Can be used for simulated images if autoscale is set to True. The figure and figure panels need to be created outside
     of this function.
@@ -273,15 +309,21 @@ def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False):
         
     autoscale : bool
         if True, the image will be displayed using matplotlib's autoscaling.
-        Otherwise, the image will be displayed using the scale (0,255)
+        Otherwise, the image will be displayed using the scale (v_min,v_max)
+        
+    v_min : float
+        pixels equal to or below this image intensity will be white in inverted grayscale
+        
+    v_max : float
+        pixels equal to or above this image intensity will be black in inverted grayscale
     
     """
     if autoscale:
         v_min = None
         v_max = None
     else: 
-        v_min = 0.0
-        v_max = 255.0
+        v_min = v_min
+        v_max = v_max
 
     Xpixels=image.shape[0]#Number of X pixels=379
     Ypixels=image.shape[1]#Number of Y pixels=279
@@ -355,7 +397,8 @@ def subsample_velocities_for_visualisation(flow_result, arrow_boxsize = 5):
     return x_positions, y_positions, subsampled_v_x, subsampled_v_y
 
  
-def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', autoscale = False, arrow_color = 'magenta'):   
+def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', 
+                                autoscale = False, arrow_color = 'magenta', v_min = 0.0, v_max = 255.0):   
     """Plot a optical flow velocity result
     
     Parameters :
@@ -378,6 +421,16 @@ def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_s
         
     arrow_color : string
         maptlotlib name of the color of the arrows
+        
+    autoscale : bool
+        if True, the image will be displayed using matplotlib's autoscaling.
+        Otherwise, the image will be displayed using the scale (v_min,v_max)
+        
+    v_min : float
+        pixels equal to or below this image intensity will be white in inverted grayscale
+        
+    v_max : float
+        pixels equal to or above this image intensity will be black in inverted grayscale
     """
     movie = flow_result['original_data']
    
@@ -386,7 +439,7 @@ def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_s
     fig = plt.figure(figsize = (2.5,2.5))
     def animate(i): 
         plt.cla()
-        costum_imshow(movie[i+1,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale)
+        costum_imshow(movie[i+1,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale, v_min = v_min, v_max = v_max)
         plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
         if i <1:
             plt.tight_layout()#make sure all lables fit in the frame

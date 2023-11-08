@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 *$py.class
 analysis/output/*
+analysis/data/*
 
 # C extensions
 *.so

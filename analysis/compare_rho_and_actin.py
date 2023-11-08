@@ -13,6 +13,7 @@ from numba import jit
 from matplotlib.animation import FuncAnimation
 from scipy.stats import gaussian_kde
 import cv2
+import imageio
 
 sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
@@ -20,7 +21,7 @@ import optical_flow
 delta_x = 0.0913
 delta_t = 10.0
 
-def make_joint_movie(smoothing_sigma = None):
+def make_joint_movie(smoothing_sigma = None, use_clahe = False):
     """make a movie with both color channels together. If a sigma is provided, it will use that to blur the movie first"""
     
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
@@ -32,6 +33,14 @@ def make_joint_movie(smoothing_sigma = None):
         smoothing_string = '_sigma_' + "{:.2f}".format(smoothing_sigma)
     else:
         smoothing_string = ''
+        
+    if use_clahe:
+        rho_movie = optical_flow.apply_clahe(rho_movie)
+        actin_movie = optical_flow.apply_clahe(actin_movie)
+        clahe_string = '_w_clahe_'
+    else:
+        clahe_string = ''
+    
  
     fig = plt.figure(figsize = (4.5,2.5))
     def animate(i): 
@@ -39,10 +48,10 @@ def make_joint_movie(smoothing_sigma = None):
         plt.subplot(121)
         # plt.gca().set_axis_off()
         plt.title('Rho')
-        optical_flow.costum_imshow(rho_movie[i,:,:],delta_x = delta_x)
+        optical_flow.costum_imshow(rho_movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(rho_movie))
         plt.subplot(122)
         plt.title('Actin')
-        optical_flow.costum_imshow(actin_movie[i,:,:],delta_x = delta_x)
+        optical_flow.costum_imshow(actin_movie[i,:,:],delta_x = delta_x, v_max = np.max(actin_movie))
         # plt.imshow(actin_movie[i,:,:],cmap = 'gray_r',vmin = 0, vmax = 255, interpolation = None)
         # plt.gca().set_axis_off()
         if i <1:
@@ -50,8 +59,41 @@ def make_joint_movie(smoothing_sigma = None):
         # plt.savefig(os.path.join(os.path.dirname(__file__),'output','joint_movie' + str(i) + '.png'),dpi=300) 
     ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
     # ani = FuncAnimation(fig, animate, frames=3)
-    ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie' + smoothing_string + '.mp4'),dpi=300) 
+    ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie' + smoothing_string + clahe_string + '.mp4'),dpi=300) 
     
+def make_actin_clahe_movie(smoothing_sigma = None):
+    """make a movie with both color channels together. If a sigma is provided, it will use that to blur the movie first"""
+    
+    actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+
+    clahed_actin_movie = optical_flow.apply_clahe(actin_movie, clipLimit = 50000, tile_number = 10)
+    
+    if smoothing_sigma is not None:
+        actin_movie = optical_flow.blur_movie(actin_movie, smoothing_sigma)
+        clahed_actin_movie = optical_flow.blur_movie(clahed_actin_movie, smoothing_sigma)
+        smoothing_string = '_sigma_' + "{:.2f}".format(smoothing_sigma)
+    else:
+        smoothing_string = ''
+ 
+    fig = plt.figure(figsize = (4.5,2.5))
+    def animate(i): 
+        # plt.cla()
+        plt.subplot(121)
+        # plt.gca().set_axis_off()
+        plt.title('without CLAHE')
+        optical_flow.costum_imshow(actin_movie[i,:,:],delta_x = delta_x)
+        plt.subplot(122)
+        plt.title('with CLAHE')
+        optical_flow.costum_imshow(clahed_actin_movie[i,:,:],delta_x = delta_x, v_min = 0.0, v_max = np.max(clahed_actin_movie))
+        # plt.imshow(actin_movie[i,:,:],cmap = 'gray_r',vmin = 0, vmax = 255, interpolation = None)
+        # plt.gca().set_axis_off()
+        if i <1:
+            plt.tight_layout()#make sure all lables fit in the frame
+        # plt.savefig(os.path.join(os.path.dirname(__file__),'output','joint_movie' + str(i) + '.png'),dpi=300) 
+    ani = FuncAnimation(fig, animate, frames=actin_movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    ani.save(os.path.join(os.path.dirname(__file__),'output','actin_clahe_movie' + smoothing_string + '.mp4'),dpi=300) 
+ 
 def investigate_intensities():
     """This makes a figure with the intensity histograms of both movies"""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
@@ -830,16 +872,45 @@ def try_dense_optical_flow_on_frame():
 
     plt.figure(figsize = (2.5,2.5), constrained_layout = True)
     optical_flow.costum_imshow(flow_result['original_data'][1,:,:], delta_x = delta_x)
-    plt.quiver(y_positions, x_positions, v_y[0,:,:], -v_x[0,:,:], color = 'magenta',headwidth=5, scale = None)
+    plt.quiver(y_positions, x_positions, v_y[0,:,:], -v_x[0,:,:], 
+               color = 'magenta',headwidth=5, scale = None)
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','optical_flow_opencv_first_try.pdf'))
     
 def conduct_dense_optical_flow():
     movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
+    # movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
     
-    flow_result = optical_flow.conduct_opencv_flow(movie, delta_x = delta_x, delta_t = delta_t)
+    # reader = imageio.get_reader(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control0000.png - Frame Interpolation.mp4'))
+
+    # Determine the dimensions of the video frames
+    # num_frames = len(reader)
+    # first_frame = reader.get_data(0)
+    # height, width,_ = first_frame.shape
+    # print(num_frames)
+    # print(height)
+    # print(width)
+    
+    # Initialize a 3D NumPy array to store the video frames
+    # movie = np.empty((int(num_frames//2e15), height, width), dtype=np.uint8)
+    
+    # for i, frame in enumerate(reader):
+        # if i//2e16==0:
+            # movie[i] = frame[:,:,0]
+    
+    # reader.close()  # Close the video file when done
+        # clahed_movie = optical_flow.apply_clahe(movie, clipLimit = 100000)
+    clahed_movie = movie[:10]
+    
+    flow_result = optical_flow.conduct_opencv_flow(clahed_movie, delta_x = delta_x, delta_t = delta_t, smoothing_sigma = 1.3)
+
+    # np.save(os.path.join(os.path.dirname(__file__),'output','opencv_optical_flow_result.npy'), flow_result)
+    
+    # flow_result['original_data'] = movie
     
     optical_flow.make_velocity_overlay_movie(flow_result, 
-                                             os.path.join(os.path.dirname(__file__),'output','actin_velocities_opencv.mp4'),arrow_scale = 1.0, arrow_boxsize = 15)
+                                             os.path.join(os.path.dirname(__file__),'output','actin_velocities_opencv.mp4'),arrow_scale = 1.0, arrow_boxsize = 15
+                                             )
+                                            #  v_max = np.max(flow_result['original_data']))
 
     
 if __name__ == '__main__':
@@ -882,5 +953,8 @@ if __name__ == '__main__':
     # make_coexpression_movie()
     # make_coexpression_movie(normalised = True)
     # try_dense_optical_flow_on_frame()
+    # make_joint_movie(use_clahe = True)
+    # make_joint_movie(use_clahe = True)
+    # make_actin_clahe_movie()
     conduct_dense_optical_flow()
 
