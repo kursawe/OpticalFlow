@@ -9,7 +9,7 @@ import skimage.filters
 import cv2
 
 @jit(nopython=True, error_model = "numpy")
-def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0):
+def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0, include_remodelling = False):
     """This is a helper method for conduct_optical_flow below. It ensures that the actual
        optical flow calculations are conducted with numba just-in-time compiled code.
        
@@ -31,6 +31,9 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
     delta_t : float
         the time interval between frames in the movie. Defaults to 1.0. 
         
+    include_remodelling : bool
+        if True return the net remodelling as well as v_x and v_y
+        
     Returns :
     ---------
     
@@ -42,6 +45,9 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
 
     speed : np array
         The speed at each pixel
+    
+    net_remodelling : np array
+        The net remodelling rate at each location. If include_remodelling is False, an array of zeros will be returned
     """
     
     # movie = np.array(movie, dtype = np.float64)
@@ -56,6 +62,7 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
     Ypixels=movie.shape[2]#Number of Y pixels
     all_v_x = np.zeros((number_of_frames-1,Xpixels,Ypixels))
     all_v_y = np.zeros((number_of_frames-1,Xpixels,Ypixels))
+    all_net_remodelling = np.zeros((number_of_frames-1,Xpixels,Ypixels))
     #get average speed of each frame:|v|=np.sqrt(Vx**2+Vy**2), np.mean(V)
     all_speed= np.zeros((number_of_frames-1,Xpixels,Ypixels))
     
@@ -75,6 +82,7 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
        
         v_x = all_v_x[frame_index-1,:,:]
         v_y = all_v_y[frame_index-1,:,:]
+        net_remodelling = all_net_remodelling[frame_index-1,:,:]
         
         speed= all_speed[frame_index-1,:,:]
         
@@ -94,26 +102,48 @@ def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0)
                 
                 sum1 = np.sum(local_delta_I*local_dIdx)
                 sum2 = np.sum(local_delta_I*local_dIdy)
-                #ABC only
-                #if mode == 'velocity_only':
-                A = np.sum((local_dIdx)**2)
-                B = np.sum(local_dIdx*local_dIdy)
-                C = np.sum((local_dIdy)**2)
-                Vx =(-C*sum1+ B*sum2)/(delta_t*(A*C-B**2))
-                Vy =(-A*sum2+ B*sum1)/(delta_t*(A*C-B**2))
-                Vspeed=np.sqrt(Vx**2+Vy**2)
 
-                v_x[pixel_index_x,pixel_index_y] = Vx
-                v_y[pixel_index_x,pixel_index_y] = Vy
+                if not include_remodelling:
+                    A = np.sum((local_dIdx)**2)
+                    B = np.sum(local_dIdx*local_dIdy)
+                    C = np.sum((local_dIdy)**2)
+                    Vx =(-C*sum1+ B*sum2)/(delta_t*(A*C-B**2))
+                    Vy =(-A*sum2+ B*sum1)/(delta_t*(A*C-B**2))
+                    Vspeed=np.sqrt(Vx**2+Vy**2)
+
+                    v_x[pixel_index_x,pixel_index_y] = Vx
+                    v_y[pixel_index_x,pixel_index_y] = Vy
                 
-                speed[pixel_index_x,pixel_index_y] = Vspeed
+                    speed[pixel_index_x,pixel_index_y] = Vspeed
+                else:
+                    A = np.sum((local_dIdx)**2)
+                    B = np.sum(local_dIdx*local_dIdy)
+                    C = np.sum(local_dIdx)
+                    D = np.sum((local_dIdy)**2)
+                    E = np.sum(local_dIdy)
+                    sum3 = np.sum(local_delta_I)
+                    
+                    total_boxsize = box_size*box_size
+                    this_sumde = delta_t*(total_boxsize*A*D-A*E**2-total_boxsize*B**2-C**2*D+2*B*C*E)
+                    if this_sumde == 0.0:
+                        Vx = np.nan
+                        Vy = np.nan
+                        this_gamma = np.nan
+                    else:
+                        Vx = ((E**2-total_boxsize*D)*sum1+(total_boxsize*B-C*E)*sum2+(C*D-B*E)*sum3)/this_sumde
+                        Vy = ((total_boxsize*B-C*E)*sum1+(C**2-total_boxsize*A)*sum2+(A*E-B*C)*sum3)/this_sumde
+                        v_x[pixel_index_x,pixel_index_y] = Vx
+                        v_y[pixel_index_x,pixel_index_y] = Vy
+                        this_gamma = -((B*E-C*D)*sum1+(B*C-A*E)*sum2+(A*D-B**2)*sum3)/this_sumde#gamma add"-"20230206
+                        net_remodelling[pixel_index_x,pixel_index_y] = this_gamma
+                        
         v_x*= delta_x/delta_t_data
         v_y*= delta_x/delta_t_data
         speed*=delta_x/delta_t_data
         
-    return all_v_x, all_v_y, all_speed
+    return all_v_x, all_v_y, all_speed, all_net_remodelling
 
-def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None, background = None):
+def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None, background = None, include_remodelling = False):
     """Conduct optical flow as in Vig et al. Biophysical Journal 110, 1469–1475, 2016.
     
     Parameters:
@@ -138,6 +168,9 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
     background : float or None
         If the value None is provided, no background will be subtracted. Otherwise, the background level will be subtracted before optical flow is conducted.
 
+    include_remodelling : bool
+        if True return the net remodelling as well as v_x and v_y
+
     Returns:
     --------
 
@@ -156,7 +189,7 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
     if smoothing_sigma is not None:
         movie_to_analyse = blur_movie(movie_to_analyse, smoothing_sigma=smoothing_sigma)
 
-    all_v_x, all_v_y, all_speed = conduct_optical_flow_jit(movie_to_analyse, boxsize, delta_x, delta_t)
+    all_v_x, all_v_y, all_speed, net_remodelling = conduct_optical_flow_jit(movie_to_analyse, boxsize, delta_x, delta_t, include_remodelling)
     result = dict()
     result['v_x'] = all_v_x
     result['v_y'] = all_v_y
@@ -165,6 +198,9 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
     result['delta_x'] = delta_x
     result['delta_t'] = delta_t
     result['blurred_data'] = movie_to_analyse
+    
+    if include_remodelling:
+        result['net_remodelling'] = net_remodelling
 
     return result
 
@@ -252,6 +288,38 @@ def blur_movie(movie, smoothing_sigma):
         blurred_movie[index,:,:] = this_blurred_image
     
     return blurred_movie
+
+def apply_adaptive_threshold(movie, window_size = 51, threshold = 0.0):
+    """Apply an opencv adaptive threshold to a video.
+    
+    Parameters :
+    ------------
+    
+    movie : np array
+        The movie to be blurred. Needs to be a multi-frame single-channel movie 
+        
+    window_size : int
+        the blocksize of used in the cv2 adaptive threshold method
+
+    threshold : float
+        The the opencv adaptive threshold parameter
+
+    Returns :
+    ---------
+    
+    thresholded_movie : np array, bool type
+        The movie after adaptive threshold application on each image
+    """
+    thresholded_movie = np.zeros_like(movie, dtype ='double')
+    transformed_movie = np.array(movie/np.max(movie)*255.0, dtype = 'uint8')
+    for index in range(movie.shape[0]):
+        this_frame = transformed_movie[index,:,:]
+        this_thresholded_frame = cv2.adaptiveThreshold(this_frame,1.0, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, window_size, threshold)
+        thresholded_movie[index,:,:] = this_thresholded_frame
+        
+    thresholded_movie = thresholded_movie == 1.0
+        
+    return thresholded_movie
 
 def apply_clahe(movie, clipLimit = 50000, tile_number = 10):
     """Apply an opencv clahe to a video.

@@ -26,8 +26,12 @@ def convert_ncorr_result(ncorr_result):
     for frame_index, displacement_dict in enumerate(ncorr_result['data_dic_save']['displacements']):
         # v_x[frame_index,:,:] = displacement_dict['plot_u_cur_formatted']*delta_x/delta_t
         print(frame_index)
+        correlation_coefficients = ncorr_result['data_dic_save']['displacements'][frame_index]['plot_corrcoef_dic']
         v_x[frame_index,:,:] = displacement_dict['plot_u_dic']*delta_x/delta_t
         v_y[frame_index,:,:] = displacement_dict['plot_v_dic']*delta_x/delta_t
+        v_x[frame_index,:,:][correlation_coefficients<0.3] = 0.0
+        v_y[frame_index,:,:][correlation_coefficients<0.3] = 0.0
+        # import pdb; pdb.set_trace()
         # v_y[frame_index,:,:] = displacement_dict['plot_v_cur_formatted']*delta_x/delta_t
         # print(displacement_dict['plot_u_cur_formatted'].shape)
         # print(np.mean(displacement_dict['plot_u_cur_formatted']))
@@ -37,7 +41,7 @@ def convert_ncorr_result(ncorr_result):
     return v_x, v_y
 
 def visualise_ncorr_result():
-    ncorr_result = mat73.loadmat((os.path.join(os.path.dirname(__file__), 'data', 'ncorr_try_actin_large_blurred.mat')))
+    ncorr_result = mat73.loadmat((os.path.join(os.path.dirname(__file__), 'data', 'ncorr_try_actin_large_blurred_again.mat')))
 
     # ncorr_result = scipy.io.loadmat(os.path.join(os.path.dirname(__file__), 'data', 'ncorr_first_frame_part.mat'))
     v_x, v_y = convert_ncorr_result(ncorr_result)
@@ -52,7 +56,7 @@ def visualise_ncorr_result():
     flow_result = dict()
     flow_result['v_x'] = v_x
     flow_result['v_y'] = v_y
-    flow_result['original_data'] = actin_movie[:3,:,:]
+    flow_result['original_data'] = actin_movie[:7,:,:]
     flow_result['delta_x'] = delta_x
     # print(np.sum(v_y>0)/279*1/379)
 
@@ -62,5 +66,25 @@ def visualise_ncorr_result():
                                              arrow_boxsize = 30)
 
 
+def plot_corr_coeffs_first_two_frames():
+    ncorr_result = mat73.loadmat((os.path.join(os.path.dirname(__file__), 'data', 'ncorr_try_actin_large_blurred_again.mat')))
+    corr_coeffs1 = ncorr_result['data_dic_save']['displacements'][0]['plot_corrcoef_dic']
+    corr_coeffs2 = ncorr_result['data_dic_save']['displacements'][1]['plot_corrcoef_dic']
+    all_corr_coeffs = np.array(corr_coeffs1.flatten().tolist() + corr_coeffs2.flatten().tolist())
+    
+    print(np.min(all_corr_coeffs[all_corr_coeffs>0]))
+    
+    plt.figure()
+    plt.hist(all_corr_coeffs, bins = 500)
+    plt.axvline(0.02, color = 'black')
+    plt.xlabel('correlation coefficient')
+    plt.ylabel('bincount')
+    # plt.xlim(0.0,0.025)
+    plt.yscale('log')
+    # plt.ylim(0,100)
+    plt.savefig(os.path.join(os.path.dirname(__file__),'output','ncorr_correlation_coefficients.pdf'))
+    
+
 if __name__ == '__main__':
     visualise_ncorr_result()
+    # plot_corr_coeffs_first_two_frames()

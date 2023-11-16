@@ -27,19 +27,20 @@ def make_joint_movie(smoothing_sigma = None, use_clahe = False):
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
 
+       
+    if use_clahe:
+        rho_movie = optical_flow.apply_clahe(rho_movie, clipLimit = 10000)
+        actin_movie = optical_flow.apply_clahe(actin_movie, clipLimit = 10000)
+        clahe_string = '_w_clahe_'
+    else:
+        clahe_string = ''
+
     if smoothing_sigma is not None:
         rho_movie = optical_flow.blur_movie(rho_movie, smoothing_sigma)
         actin_movie = optical_flow.blur_movie(actin_movie, smoothing_sigma)
         smoothing_string = '_sigma_' + "{:.2f}".format(smoothing_sigma)
     else:
         smoothing_string = ''
-        
-    if use_clahe:
-        rho_movie = optical_flow.apply_clahe(rho_movie)
-        actin_movie = optical_flow.apply_clahe(actin_movie)
-        clahe_string = '_w_clahe_'
-    else:
-        clahe_string = ''
     
  
     fig = plt.figure(figsize = (4.5,2.5))
@@ -224,26 +225,44 @@ def investigate_intensity_thresholds():
     plt.gca().ticklabel_format(scilimits = (-3,3))
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','both_intensity_histgrams_blurred.pdf'))
  
-def make_thresholded_movies( threshold = 17.5, rho_sigma = 1.0, actin_sigma = 1.3):
+def make_thresholded_movies( threshold = 17.5, rho_sigma = 1.0, actin_sigma = 1.3, clahe = None, adaptive = False):
     """This function makes a movie with both channels, and in which pixel values below a certain intensity are coloured in green."""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
     
+    if clahe is not None:
+        rho_movie = optical_flow.apply_clahe(rho_movie, clipLimit = clahe)
+        actin_movie = optical_flow.apply_clahe(actin_movie, clipLimit = clahe)
+        rho_movie /= np.max(rho_movie)
+        rho_movie*=255.0
+        actin_movie /= np.max(actin_movie)
+        actin_movie*=255.0
+        clahe_string = '_w_clahe_'
+    else:
+        clahe_string = ''
+    
     rho_movie_blurred = optical_flow.blur_movie(rho_movie, smoothing_sigma = rho_sigma)
     actin_movie_blurred = optical_flow.blur_movie(actin_movie, smoothing_sigma = actin_sigma)
+    
+    if adaptive:
+        rho_mask = optical_flow.apply_adaptive_threshold(rho_movie_blurred, window_size = 151, threshold = -5)
+        actin_mask = optical_flow.apply_adaptive_threshold(actin_movie_blurred, window_size = 151, threshold = -5)
+    else:
+        rho_mask = rho_movie<threshold
+        actin_mask = actin_movie<threshold
     
     rho_thresholded = np.zeros((actin_movie.shape[0],actin_movie.shape[1],actin_movie.shape[2], 3), dtype = 'int')
     actin_thresholded = np.zeros((actin_movie.shape[0],actin_movie.shape[1],actin_movie.shape[2], 3), dtype = 'int')
     
-    actin_thresholded[actin_movie_blurred<threshold,1] = 255-actin_movie[actin_movie_blurred<threshold]
-    actin_thresholded[actin_movie_blurred>threshold,0] = 255-actin_movie[actin_movie_blurred>threshold]
-    actin_thresholded[actin_movie_blurred>threshold,1] = 255-actin_movie[actin_movie_blurred>threshold]
-    actin_thresholded[actin_movie_blurred>threshold,2] = 255-actin_movie[actin_movie_blurred>threshold]
+    actin_thresholded[np.logical_not(actin_mask),1] = 255-actin_movie[np.logical_not(actin_mask)]
+    actin_thresholded[actin_mask,0] = 255-actin_movie[actin_mask]
+    actin_thresholded[actin_mask,1] = 255-actin_movie[actin_mask]
+    actin_thresholded[actin_mask,2] = 255-actin_movie[actin_mask]
     
-    rho_thresholded[rho_movie_blurred<threshold,1] = 255-rho_movie[rho_movie_blurred<threshold]
-    rho_thresholded[rho_movie_blurred>threshold,0] = 255-rho_movie[rho_movie_blurred>threshold]
-    rho_thresholded[rho_movie_blurred>threshold,1] = 255-rho_movie[rho_movie_blurred>threshold]
-    rho_thresholded[rho_movie_blurred>threshold,2] = 255-rho_movie[rho_movie_blurred>threshold]
+    rho_thresholded[np.logical_not(rho_mask),1] = 255-rho_movie[np.logical_not(rho_mask)]
+    rho_thresholded[rho_mask,0] = 255-rho_movie[rho_mask]
+    rho_thresholded[rho_mask,1] = 255-rho_movie[rho_mask]
+    rho_thresholded[rho_mask,2] = 255-rho_movie[rho_mask]
 
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -257,8 +276,30 @@ def make_thresholded_movies( threshold = 17.5, rho_sigma = 1.0, actin_sigma = 1.
         optical_flow.costum_imshow(actin_thresholded[i,:,:,:],autoscale = False, cmap = None, delta_x = delta_x)
     ani = FuncAnimation(fig, animate, frames=rho_movie.shape[0])
     ani.save(os.path.join(os.path.dirname(__file__),'output','joint_movie_thresholded_treshold_' + "{:.2f}".format(threshold) + 
-                          '_rho_' + "{:.2f}".format(rho_sigma)+ '_actin_' +  "{:.2f}".format(actin_sigma) + '.mp4'),dpi=300) 
+                          '_rho_' + "{:.2f}".format(rho_sigma)+ '_actin_' +  "{:.2f}".format(actin_sigma) + clahe_string + '.mp4'),dpi=300) 
  
+    plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    plt.subplot(121)
+    plt.hist(actin_movie_blurred.flatten(),bins=255, range = (0,255))
+    # plt.xlim(0,100)
+    plt.axvline(17, color = 'black', label = 'Intensity = 17')
+    plt.xlabel('Actin intensity value')
+    plt.ylabel('Number of pixels')
+    plt.legend()
+    plt.gca().ticklabel_format(scilimits = (-3,3))
+    
+    plt.subplot(122)
+    plt.hist(rho_movie_blurred.flatten(),bins=255, range = (0,255))
+    plt.xlabel('Rho intensity value')
+    plt.ylabel('Number of pixels')
+    # plt.xlim(0,100)
+    plt.axvline(18, color = 'black', label = 'Intensity = 18')
+    plt.legend()
+    plt.gca().ticklabel_format(scilimits = (-3,3))
+    plt.savefig(os.path.join(os.path.dirname(__file__),'output','both_intensity_histgrams_blurred_clahed.pdf'))
+ 
+
+
 @jit(nopython = True)
 def make_fake_data_frame(x_position, y_position, include_noise = False):
     """This is a helper function for making in silico data"""
@@ -590,37 +631,54 @@ def make_OF_blur_analysis(channel = 'actin', boxsize = 21):
     plt.ylabel('Local speed [$\mathrm{\mu m}$/s]')
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','blursize_local_velocities_' + channel + '_boxsize_' + str(boxsize) + '.pdf'),dpi = 300) 
 
-def make_and_save_rho_optical_flow():
+def make_and_save_rho_optical_flow(include_remodelling = False):
     """This function saves the optical flow result for rho"""
     
     rho_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','Rho1-reporter_MB160918_20_a_control.tif'))
-    this_result = optical_flow.conduct_optical_flow(rho_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 3, boxsize = 15)
+    this_result = optical_flow.conduct_optical_flow(rho_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 3.0, boxsize = 31, include_remodelling = include_remodelling)
     
-    np.save(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'), this_result)
+    if include_remodelling:
+        remodelling_string = '_w_remodelling'
+    else:
+        remodelling_string = ''
+    
+    np.save(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result' + remodelling_string + '.npy'), this_result)
 
-def make_and_save_actin_optical_flow():
+def make_and_save_actin_optical_flow(include_remodelling = False):
     """This function saves the optical flow result for actin"""
     actin_movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','LifeActin-Ruby_MB160918_20_a_control.tif'))
-    this_result = optical_flow.conduct_optical_flow(actin_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 3, boxsize = 15)
-    
-    np.save(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'), this_result)
+    this_result = optical_flow.conduct_optical_flow(actin_movie, delta_x = 0.0913, delta_t = 10.0, smoothing_sigma = 3.0, boxsize = 31, include_remodelling = include_remodelling)
 
-def joint_actin_and_rho_flow_result(show_blurred=False):
+    if include_remodelling:
+        remodelling_string = '_w_remodelling'
+    else:
+        remodelling_string = ''
+    
+    np.save(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result' + remodelling_string + '.npy'), this_result)
+
+def joint_actin_and_rho_flow_result(show_blurred=False, include_remodelling = False):
     """This function shows the optical flow result of channels in one movie, using the saved files from the functions above"""
-    actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result.npy'),allow_pickle='TRUE').item()
-    rho_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result.npy'),allow_pickle='TRUE').item()
+
+    if include_remodelling:
+        remodelling_string = '_w_remodelling'
+    else:
+        remodelling_string = ''
+
+    actin_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','actin_optical_flow_result' + remodelling_string + '.npy'),allow_pickle='TRUE').item()
+    rho_flow_result = np.load(os.path.join(os.path.dirname(__file__),'output','rho_optical_flow_result' + remodelling_string + '.npy'),allow_pickle='TRUE').item()
 
     x_positions, y_positions, v_x_rho, v_y_rho = optical_flow.subsample_velocities_for_visualisation(rho_flow_result, arrow_boxsize = 15)
     x_positions, y_positions, v_x_actin, v_y_actin = optical_flow.subsample_velocities_for_visualisation(actin_flow_result, arrow_boxsize = 15)
+
     
     if show_blurred:
         rho_movie = rho_flow_result['blurred_data']
         actin_movie = actin_flow_result['blurred_data']
-        filename = 'joint_overlay_blurred.mp4'
+        filename = 'joint_overlay_blurred' + remodelling_string + '.mp4'
     else:
         rho_movie = rho_flow_result['original_data']
         actin_movie = actin_flow_result['original_data']
-        filename = 'joint_overlay.mp4'
+        filename = 'joint_overlay' + remodelling_string + '.mp4'
 
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -912,7 +970,6 @@ def conduct_dense_optical_flow():
                                              )
                                             #  v_max = np.max(flow_result['original_data']))
 
-    
 if __name__ == '__main__':
 
     ## All figures follow here
@@ -925,6 +982,11 @@ if __name__ == '__main__':
     # make_thresholded_movies( threshold = 40, rho_sigma = 10, actin_sigma = 10)
     # make_thresholded_movies( threshold = 30, rho_sigma = 3.0, actin_sigma = 3)
     # make_thresholded_movies( threshold = 30, rho_sigma = 10, actin_sigma = 10)
+    # make_thresholded_movies( threshold = 130, rho_sigma = 3, actin_sigma = 3, clahe = 10000)
+    # make_thresholded_movies( threshold = 120, rho_sigma = 3, actin_sigma = 3, clahe = 10000)
+    # make_thresholded_movies( threshold = 110, rho_sigma = 3, actin_sigma = 3, clahe = 10000)
+    # make_thresholded_movies( threshold = 30, rho_sigma = 6, actin_sigma = 6, clahe = None, adaptive = True)
+    make_thresholded_movies( threshold = 30, rho_sigma = 3, actin_sigma = 3, clahe = None, adaptive = True)
     # check_error_of_method()
     # check_error_of_method(include_noise = True)
     # make_boxsize_analysis(channel = 'actin')
@@ -955,6 +1017,11 @@ if __name__ == '__main__':
     # try_dense_optical_flow_on_frame()
     # make_joint_movie(use_clahe = True)
     # make_joint_movie(use_clahe = True)
+    # make_joint_movie(smoothing_sigma= 3.0, use_clahe = True)
     # make_actin_clahe_movie()
-    conduct_dense_optical_flow()
+    # conduct_dense_optical_flow()
+    # make_and_save_actin_optical_flow(include_remodelling=True)
+    # make_and_save_rho_optical_flow(include_remodelling=True)
+    # joint_actin_and_rho_flow_result(include_remodelling=True)
+    
 
