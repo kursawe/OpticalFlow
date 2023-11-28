@@ -299,24 +299,6 @@ def make_thresholded_movies( threshold = 17.5, rho_sigma = 1.0, actin_sigma = 1.
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','both_intensity_histgrams_blurred_clahed.pdf'))
  
 
-
-@jit(nopython = True)
-def make_fake_data_frame(x_position, y_position, include_noise = False):
-    """This is a helper function for making in silico data"""
-    x_dim = 1000
-    x = np.linspace(0,20,x_dim)#(0,10,100)0-10 100 samples uniform,np.linespace(start,stop,number)
-    y = np.linspace(0,20,x_dim)
-    frame = np.zeros((x_dim,x_dim))
-    for x_index, x_value in enumerate(x):
-        for y_index,y_value in enumerate(y):
-            frame[x_index, y_index] = np.exp(-(x_value-x_position)**2 - (y_value-y_position)**2)
-    delta_x = x[1]-x[0]
-    if include_noise:
-        frame += np.random.rand(x_dim, x_dim)*0.0000001
-        frame = np.abs(frame)
- 
-    return frame, delta_x
-
 def check_error_of_method(include_noise = False):
     """This makes a movie of with silico data and applies optical flow. It then saves a visualisation of the result
     as a movie and makes some histograms."""
@@ -337,7 +319,7 @@ def check_error_of_method(include_noise = False):
     x_position = 5
     y_position = 3
     for frame_index in range(n_steps):
-        this_frame, delta_x = make_fake_data_frame(x_position, y_position, include_noise)
+        this_frame, delta_x = optical_flow.make_fake_data_frame(x_position, y_position, include_noise)
         frames.append(this_frame)
         x_position += x_step
         y_position += y_step

@@ -1,5 +1,6 @@
 import numpy as np
 from numba import jit
+from numba import njit
 import matplotlib.pyplot as plt
 font = {'size'   : 10,
         'sans-serif' : 'Arial'}
@@ -357,7 +358,463 @@ def apply_clahe(movie, clipLimit = 50000, tile_number = 10):
     
     return clahed_movie
 
+@jit(nopython = True)
+def make_fake_data_frame(x_position, y_position, sigma = 1.0, width = 20.0, include_noise = False, dimension = 1000):
+    """This is a helper function for making in silico data.
+    It draws a gaussian hat of the form e^[-1/sigma^2*(delta_x^2 + delta_y^2) around the given
+    x and y positoins
+    
+    Parameters:
+    -----------
+
+    x_position : float
+        the position of the hat.
+        
+    y_position :float
+        the y position of the hat
+        
+    sigma : float
+        the radius of the hat, see formula above
+        
+    x_width : float
+        the x width of the domain. The domain is assumed to be square, i.e the height will be the same
+        
+    include_noise : bool
+        whether to include random noise in the image. If true, 1e-7 is added to each pixel
+        
+    dimension : int
+        The size of the image in pixels
+
+    Returns:
+    --------
+
+    frame : np.array
+        an image of the drawn hat
+
+    delta_x : float
+        the size of one pixel (measured in the same units as x_position, y_position, and sigma)  
+    """
+    x = np.linspace(0,width,dimension)#(0,10,100)0-10 100 samples uniform,np.linespace(start,stop,number)
+    y = np.linspace(0,width,dimension)
+    frame = np.zeros((dimension,dimension))
+    for x_index, x_value in enumerate(x):
+        for y_index,y_value in enumerate(y):
+            frame[x_index, y_index] = np.exp((-(x_value-x_position)**2 - (y_value-y_position)**2)/sigma**2)
+    delta_x = x[1]-x[0]
+    if include_noise:
+        frame += np.random.rand(dimension, dimension)*0.0000001
+        frame = np.abs(frame)
+ 
+    return frame, delta_x
+
+# @jit(nopython = True)
+@njit
+def variational_optical_flow_jit(movie,
+                             delta_x = 1.0,
+                             delta_t = 1.0,
+                             alpha=100,
+                             initial_v_x=np.zeros((10,10),dtype =float),
+                             initial_v_y= np.zeros((10,10),dtype =float),
+                             initial_remodelling=np.zeros((10,10),dtype =float),
+                             iterations = 10):
+    """Perform variational optical flow on the movie.
+    This method is experimental and has not been validated.
+    
+    Parameters:
+    -----------
+    
+    movie : nd array, 3D
+        The movie we want to analyse. needs to be a single-colour movie.
+        The first dimension is the frame index, the other two dimensions are
+        x-pixel index and y-pixel index, respectively.
+        
+    delta_x : float
+        The size of one pixel. This is assumed to be the same in x and y direction
+        
+    delta_t : float
+        The length of the time interval between frames. This is assumed to be the same in x and y direction
+
+    alpha : float
+        The lagrange multiplier used in the method.
+        
+    v_x_guess : float
+        The initial guess for v_x
+
+    v_y_guess : float
+        The initial guess for v_x
+        
+    remodelling_guess : float
+        The initial guess for the net remodelling
+        
+    iterations : int
+        The number of jacobi iterations that we should use.
+        
+    Returns:
+    --------
+    
+    v_x : nd array
+        The x-velocities. The array has the same dimension as the movie argument, unless return_iterations is True
+        
+    v_y : nd array
+        The y-velocities. The array has the same dimension as the movie argumen, unless return_iterations is True.
+    
+    net_remodelling : nd array
+        The net remodelling. The array has the same dimension as the movie argumen, unless return_iterations is True.
+    """
+    # blurred_images= all_images(dtype=float)
+    I = movie[0,:,:]
+    number_of_frames = movie.shape[0]
+    number_of_Xpixels= movie.shape[1]
+    number_of_Ypixels= movie.shape[2]
+    
+    initial_v_x*=delta_t/delta_x
+    initial_v_y*=delta_t/delta_x
+
+    all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)#previous 0.0001*0.019550342130987292
+    all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)
+    all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels),dtype = float)   
+    print('hello?')
+
+    for frame_index in range(1,movie.shape[0]):
+        current_frame = movie[frame_index]
+        previous_frame = movie[frame_index -1]
+        # next_frame = movie[frame_index +1]
+        all_v_x[frame_index -1 ,:,:] = initial_v_x
+        all_v_y[frame_index -1 ,:,:] = initial_v_y
+        all_remodelling[frame_index -1 ,:,:] = initial_remodelling
+
+        v_x = all_v_x[frame_index-1,:,:]
+        v_y = all_v_y[frame_index-1,:,:]
+        remodelling= all_remodelling[frame_index-1,:,:]
+ 
+        #put jacobi loop here
+        ###Since will loop itertaion times in the apply file without jit to use npsave data,here igonred itertaion loop
+        for iteration_index in range(iterations):
+            #print(iteration_index)
+            for pixel_index_x in range(number_of_Xpixels):
+                for pixel_index_y in range(number_of_Ypixels):
+                   #Let boundary pixels have same values as their neighbour pixels 
+                    if pixel_index_x == 0:
+                        v_x[pixel_index_x, pixel_index_y] = v_x[pixel_index_x+1, pixel_index_y]
+                        v_y[pixel_index_x, pixel_index_y] = v_y[pixel_index_x+1, pixel_index_y]
+                        remodelling[pixel_index_x, pixel_index_y] = remodelling[pixel_index_x+1, pixel_index_y]
+                       
+                    elif pixel_index_x == number_of_Xpixels -1:
+                        v_x[pixel_index_x, pixel_index_y] = v_x[pixel_index_x-1, pixel_index_y]
+                        v_y[pixel_index_x, pixel_index_y] = v_y[pixel_index_x-1, pixel_index_y]
+                        remodelling[pixel_index_x, pixel_index_y] = remodelling[pixel_index_x-1, pixel_index_y]
+                        
+                    elif pixel_index_y == 0:
+                        v_x[pixel_index_x, pixel_index_y] = v_x[pixel_index_x, pixel_index_y+1]
+                        v_y[pixel_index_x, pixel_index_y] = v_y[pixel_index_x, pixel_index_y+1]
+                        remodelling[pixel_index_x, pixel_index_y] = remodelling[pixel_index_x, pixel_index_y+1]
+                        
+                    elif pixel_index_y == number_of_Ypixels -1:
+                        v_x[pixel_index_x, pixel_index_y] = v_x[pixel_index_x, pixel_index_y-1]
+                        v_y[pixel_index_x, pixel_index_y] = v_y[pixel_index_x, pixel_index_y-1]
+                        remodelling[pixel_index_x, pixel_index_y] = remodelling[pixel_index_x, pixel_index_y-1]
+                    else:
+                        
+                        dxdVx_ij = (v_x[pixel_index_x+1,pixel_index_y]-v_x[pixel_index_x-1,pixel_index_y])/2#dVx/dx_ij
+                        dydVx_ij = (v_x[pixel_index_x,pixel_index_y+1]-v_x[pixel_index_x,pixel_index_y-1])/2#dVx/dy_ij
+                        dxydVx_ij = (v_x[pixel_index_x+1,pixel_index_y+1]
+                                     -v_x[pixel_index_x+1,pixel_index_y-1]
+                                     -v_x[pixel_index_x-1,pixel_index_y+1]
+                                     +v_x[pixel_index_x-1,pixel_index_y-1])/4#d^2Vx/dxdy_ij
+                        Vx_barx_ij = v_x[pixel_index_x+1,pixel_index_y]+v_x[pixel_index_x-1,pixel_index_y]
+                        Vx_bary_ij = v_x[pixel_index_x,pixel_index_y+1]+v_x[pixel_index_x,pixel_index_y-1]
+                        Vx_bar_ij = (v_x[pixel_index_x-1,pixel_index_y]
+                                     +v_x[pixel_index_x+1,pixel_index_y]
+                                     +v_x[pixel_index_x,pixel_index_y+1]
+                                     +v_x[pixel_index_x,pixel_index_y-1])
+                        dxxdVx = (v_x[pixel_index_x+1,pixel_index_y]
+                                  +v_x[pixel_index_x-1,pixel_index_y]
+                                  -2*v_x[pixel_index_x,pixel_index_y])#d^2Vx/dx^2_ij
+                        
+                        #About I definitions           
+                        dIdx_ij = (current_frame[pixel_index_x+1,pixel_index_y] 
+                                   +previous_frame[pixel_index_x+1,pixel_index_y]
+                                   -current_frame[pixel_index_x-1,pixel_index_y]
+                                   -previous_frame[pixel_index_x-1,pixel_index_y])/4#dI/dx_ij  #h=delta_x in equation
+                        dIdy_ij = (current_frame[pixel_index_x,pixel_index_y+1]
+                                   +previous_frame[pixel_index_x,pixel_index_y+1]
+                                   -current_frame[pixel_index_x,pixel_index_y-1]
+                                   -previous_frame[pixel_index_x,pixel_index_y-1])/4#dI/dy_ij  #h=delta_x
+                        
+                        #Use corss derivate to define Ixt, same asIx Iy         
+                        # dIdx_t=(next_frame[pixel_index_x+1,pixel_index_y]
+                                # +previous_frame[pixel_index_x-1,pixel_index_y]
+                                # -next_frame[pixel_index_x-1,pixel_index_y]
+                                # -previous_frame[pixel_index_x+1,pixel_index_y])/4
+                        # dIdy_t=(next_frame[pixel_index_x,pixel_index_y+1]
+                                # +previous_frame[pixel_index_x,pixel_index_y-1]
+                                # -next_frame[pixel_index_x,pixel_index_y-1]
+                                # -previous_frame[pixel_index_x,pixel_index_y+1])/4
+                                
+                        dIdx_t=(current_frame[pixel_index_x+1,pixel_index_y]
+                                -current_frame[pixel_index_x-1,pixel_index_y]
+                                -previous_frame[pixel_index_x+1,pixel_index_y]
+                                +previous_frame[pixel_index_x+1,pixel_index_y])/2
+                        dIdy_t=(current_frame[pixel_index_x,pixel_index_y+1]
+                                -current_frame[pixel_index_x,pixel_index_y-1]
+                                -previous_frame[pixel_index_x,pixel_index_y-1]
+                                +previous_frame[pixel_index_x,pixel_index_y+1])/2
+
+
+
+                        #easy form, can compare with the futher improve one
+                        dIdt = (current_frame[pixel_index_x,pixel_index_y]
+                                -previous_frame[pixel_index_x,pixel_index_y])#It=delta t
+
+                     #further improve(can be used for other date with more frames)
+                        #dIdt = (next_frame[pixel_index_x,pixel_index_y]-previous_frame[pixel_index_x,pixel_index_y])/(2*delta_t)                     
+                        
+                        dIdxx_ij =(current_frame[pixel_index_x+1,pixel_index_y]
+                                   +current_frame[pixel_index_x-1,pixel_index_y]
+                                   -2*current_frame[pixel_index_x,pixel_index_y])#Ixx
+                        dIdyy_ij =(current_frame[pixel_index_x,pixel_index_y+1]
+                                   +current_frame[pixel_index_x,pixel_index_y-1]
+                                   -2*current_frame[pixel_index_x,pixel_index_y])#Iyy
+                        dIdyx_ij =(current_frame[pixel_index_x+1,pixel_index_y+1]
+                                   -current_frame[pixel_index_x+1,pixel_index_y-1]
+                                   -current_frame[pixel_index_x-1,pixel_index_y+1]
+                                   +current_frame[pixel_index_x-1,pixel_index_y-1])/4#Iyx
+                        dIdxy_ij = dIdyx_ij #Ixy=Iyx
+                        
+                        #Evy stencil definitions
+                        dxdVy_ij = (v_y[pixel_index_x+1,pixel_index_y]-v_y[pixel_index_x-1,pixel_index_y])/2#dVy/dx_ij
+                        dydVy_ij = (v_y[pixel_index_x,pixel_index_y+1]-v_y[pixel_index_x,pixel_index_y-1])/2#dVy/dy_ij
+                        dxydVy_ij = (v_y[pixel_index_x+1,pixel_index_y+1]
+                                     -v_y[pixel_index_x+1,pixel_index_y-1]
+                                     -v_y[pixel_index_x-1,pixel_index_y+1]
+                                     +v_y[pixel_index_x-1,pixel_index_y-1])/4#d^2Vy/dxdy_ij
+                        Vy_barx_ij = v_y[pixel_index_x+1,pixel_index_y]+v_y[pixel_index_x-1,pixel_index_y]
+                        Vy_bary_ij = v_y[pixel_index_x,pixel_index_y+1]+v_y[pixel_index_x,pixel_index_y-1]
+                        Vy_bar_ij = (v_y[pixel_index_x-1,pixel_index_y]
+                                     +v_y[pixel_index_x+1,pixel_index_y]
+                                     +v_y[pixel_index_x,pixel_index_y+1]
+                                     +v_y[pixel_index_x,pixel_index_y-1])
+                        dyydVy = (v_y[pixel_index_x,pixel_index_y+1]
+                                  +v_y[pixel_index_x,pixel_index_y-1]
+                                  -2*v_y[pixel_index_x,pixel_index_y])
+                        
+                        
+                        #Egamma stencil definition
+                        remodelling_bar_ij=(remodelling[pixel_index_x-1,pixel_index_y]
+                                            +remodelling[pixel_index_x+1,pixel_index_y]
+                                            +remodelling[pixel_index_x,pixel_index_y-1]
+                                            +remodelling[pixel_index_x,pixel_index_y+1])              
+                        remodelling_x=(remodelling[pixel_index_x+1,pixel_index_y]-remodelling[pixel_index_x-1,pixel_index_y])/2 #same as define Vxx, Ix...
+                        remodelling_y=(remodelling[pixel_index_x,pixel_index_y+1]-remodelling[pixel_index_x,pixel_index_y-1])/2 
+                        
+                        #input final matrix function
+                        F=np.array([current_frame[pixel_index_x,pixel_index_y]*(remodelling_x-dIdx_t)
+                                    -current_frame[pixel_index_x,pixel_index_y]*
+                                        (2*dIdx_ij*dxdVx_ij+dIdy_ij*dxdVy_ij+dIdx_ij*dydVy_ij)
+                                    -current_frame[pixel_index_x,pixel_index_y]**2*
+                                        (Vx_barx_ij+dxydVy_ij)-alpha*Vx_bar_ij,
+                                    #
+                                    current_frame[pixel_index_x,pixel_index_y]*(remodelling_y-dIdy_t)
+                                    -current_frame[pixel_index_x,pixel_index_y]*
+                                        (2*dIdy_ij*dydVy_ij+dIdx_ij*dydVx_ij+dIdy_ij*dxdVx_ij)
+                                    -current_frame[pixel_index_x,pixel_index_y]**2*(Vy_bary_ij+dxydVx_ij)-alpha*Vy_bar_ij,
+                                    #
+                                    dIdt+current_frame[pixel_index_x,pixel_index_y]*dxdVx_ij
+                                    +current_frame[pixel_index_x,pixel_index_y]*dydVy_ij
+                                    +alpha*remodelling_bar_ij])
+                        
+                        
+                        matrix_A=np.array([[current_frame[pixel_index_x,pixel_index_y]*dIdxx_ij 
+                                                -2*current_frame[pixel_index_x,pixel_index_y]**2
+                                                -4*alpha,
+                                            current_frame[pixel_index_x,pixel_index_y]*dIdyx_ij,0],
+                                           #
+                                          [current_frame[pixel_index_x,pixel_index_y]*dIdxy_ij,
+                                           current_frame[pixel_index_x,pixel_index_y]*dIdyy_ij 
+                                               -2*current_frame[pixel_index_x,pixel_index_y]**2
+                                               -4*alpha,
+                                            0],
+                                           #
+                                          [-dIdx_ij,-dIdy_ij,1+4*alpha]])
+ 
+                        # This is the matrix definition from Kairui's file (except that I broke up the lines
+                        # to be more readable)
+                        # matrix_A=np.array([[current_frame[pixel_index_x,pixel_index_y]*dIdxx_ij 
+                        #                         -2*current_frame[pixel_index_x,pixel_index_y]**2
+                        #                         -4*alpha,
+                        #                     current_frame[pixel_index_x,pixel_index_y]*dIdyx_ij,0],
+                        #                    #
+                        #                   [current_frame[pixel_index_x,pixel_index_y]*dIdxy_ij,
+                        #                    current_frame[pixel_index_x,pixel_index_y]*dIdyy_ij 
+                        #                        -2*current_frame[pixel_index_x,pixel_index_y]**2
+                        #                        -4*alpha,
+                        #                     0],
+                        #                    #
+                        #                   [-dIdx_ij,-dIdy_ij,1+4*alpha]])
+        
+                        matrix_A_inverse=np.linalg.inv(matrix_A)
+                        
+                        new_state= matrix_A_inverse.dot(F)
+                       
+                        v_x[pixel_index_x,pixel_index_y]=new_state[0]
+                        v_y[pixel_index_x,pixel_index_y]=new_state[1]
+                        remodelling[pixel_index_x,pixel_index_y]=new_state[2]
    
+    all_v_x *= delta_x/delta_t
+    all_v_y *= delta_x/delta_t
+    all_speed = np.sqrt(all_v_x**2+all_v_y**2)
+    return all_v_x, all_v_y, all_speed, all_remodelling
+
+def conduct_variational_optical_flow(movie, 
+                                     delta_x = 1.0,
+                                     delta_t = 1.0,
+                                     alpha=100,
+                                     v_x_guess=0.1,
+                                     v_y_guess= 0.1,
+                                     remodelling_guess=0.5,
+                                     iterations = 10,
+                                     smoothing_sigma = None,
+                                     return_iterations = False,
+                                     iteration_stepsize = 1):
+    """Conduct optical flow as in Vig et al. Biophysical Journal 110, 1469–1475, 2016.
+    
+    Parameters:
+    -----------
+
+    movie : np.array
+        the movie we wish to analyse
+    
+    boxsize : int
+        the boxsize for the optical flow algorithm. If an even number is provided, the next smallest uneven number will be used.
+
+    delta_x : float
+        the size of one pixel in the movie. We assume pixel size is identical in the x and y directions
+
+    delta_t : float
+        the time interval between frames in the movie. Defaults to 1.0.
+        
+    alpha : float
+        The lagrange multiplier used in the method.
+        
+    v_x_guess : float
+        The initial guess for v_x
+
+    v_y_guess : float
+        The initial guess for v_x
+        
+    remodelling_guess : float
+        The initial guess for the net remodelling
+        
+    iterations : int
+        The number of jacobi iterations that we should use.
+ 
+    smoothing_sigma : float or None
+        If the value None is provided, no smoothing will be applied. Otherwise a gaussian blur with this sigma value
+        will be applied to the movie before optical flow is conducted.
+        
+    return_iterations : bool
+        if True then return the output from each iteration, rather than just the last iteration
+        
+    iteration_stepsize : int
+        Only relevant if return_iterations is true, this argument will be ignored otherwise
+        if return_iterations is True, this will enforce that iterations are subsampled with this interval,
+        i.e. only ever iteration_stepsize step will be recorded
+
+    Returns:
+    --------
+
+    result : dict
+        A dictionary containing the results of optical flow calculations, as well as arrays for the orignal and blurred data.
+        The keys are: v_x, v_y, speed, original_data, blurred_data, delta_x, delta_t
+    """
+    
+    if smoothing_sigma is not None:
+        movie_to_analyse = blur_movie(movie, smoothing_sigma=smoothing_sigma)
+    else:
+        movie_to_analyse = movie
+
+    initial_v_x = np.full((movie.shape[1],movie.shape[2]),float(v_x_guess)) 
+    initial_v_y = np.full((movie.shape[1],movie.shape[2]),float(v_y_guess)) 
+    initial_remodelling = np.full((movie.shape[1],movie.shape[2]),float(remodelling_guess)) 
+    print('initial matrices have means')
+    print(np.mean(initial_v_x))
+    print(np.mean(initial_v_y))
+    print(np.mean(initial_remodelling))
+
+    result = dict()
+    if return_iterations:
+        this_v_x, this_v_y, this_speed, this_remodelling = variational_optical_flow_jit(movie_to_analyse, 
+                                                                                    delta_x,
+                                                                                    delta_t,
+                                                                                    alpha,
+                                                                                    initial_v_x,
+                                                                                    initial_v_y,
+                                                                                    initial_remodelling,
+                                                                                    iterations = iteration_stepsize)
+
+        print('this mean_speed is')
+        print(np.mean(this_speed))
+        number_of_recorded_iterations = iterations//iteration_stepsize
+
+        all_v_x = np.zeros((this_v_x.shape[0], number_of_recorded_iterations, this_v_x.shape[0], this_v_y.shape[1], this_v_y.shape[2])) 
+        all_v_y = np.zeros_like(all_v_x)
+        all_speed = np.zeros_like(all_v_x)
+        all_remodelling = np.zeros_like(all_v_x)
+
+        all_v_x[:,0,:,:] = this_v_x
+        all_v_y[:,0,:,:] = this_v_y
+        all_speed[:,0,:,:] = this_speed
+        all_remodelling[:,0,:,:] = this_remodelling
+
+        for iteration_index in range(1,number_of_recorded_iterations):
+            this_v_x, this_v_y, this_speed, this_remodelling = variational_optical_flow_jit(movie_to_analyse, 
+                                                                                    delta_x,
+                                                                                    delta_t,
+                                                                                    alpha,
+                                                                                    this_v_x,
+                                                                                    this_v_y,
+                                                                                    this_remodelling,
+                                                                                    iterations = iteration_stepsize)
+            print('this mean_speed is')
+            print(np.mean(this_speed))
+
+            all_v_x[:,iteration_index,:,:] = this_v_x
+            all_v_y[:,iteration_index,:,:] = this_v_y
+            all_speed[:,iteration_index,:,:] = this_speed
+            all_remodelling[:,iteration_index,:,:] = this_remodelling
+
+        result['v_x'] = all_v_x[:,0,:,:]
+        result['v_y'] = all_v_y[:,0,:,:]
+        result['speed'] = all_speed[:,0,:,:]
+        result['remodelling'] = all_remodelling[:,0,:,:]
+
+        result['v_x_steps'] = all_v_x
+        result['v_y_steps'] = all_v_y
+        result['speed_steps'] = all_speed
+        result['remodelling_steps'] = all_remodelling
+        result['iteration_stepsize'] = iteration_stepsize
+
+    else:
+        all_v_x, all_v_y, all_speed, all_remodelling = variational_optical_flow_jit(movie_to_analyse, 
+                                                                                    delta_x,
+                                                                                    delta_t,
+                                                                                    alpha,
+                                                                                    initial_v_x,
+                                                                                    initial_v_y,
+                                                                                    initial_remodelling,
+                                                                                    iterations)
+        result['v_x'] = all_v_x
+        result['v_y'] = all_v_y
+        result['speed'] = all_speed
+        result['remodelling'] = all_remodelling
+
+    result['original_data'] = movie
+    result['delta_x'] = delta_x
+    result['delta_t'] = delta_t
+    result['blurred_data'] = all_remodelling
+    
+    return result
+
 def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.0, v_max = 255.0):
     """Our typical way to show images. Will display the image without any anti-aliasing and add axis units and labels. 
     Can be used for simulated images if autoscale is set to True. The figure and figure panels need to be created outside
