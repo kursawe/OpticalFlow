@@ -262,27 +262,27 @@ def apply_method_to_data_with_non_moving_boundary():
     second_frame[second_frame<0]=0.0
     noise_1 = np.random.random((50,50))
     noise_2 = np.random.random((50,50))
-    first_frame = np.abs(first_frame+noise_1*1e-3)
-    second_frame = np.abs(second_frame+noise_2*1e-3)
+    # first_frame = np.abs(first_frame+noise_1*1e-3)
+    # second_frame = np.abs(second_frame+noise_2*1e-3)
     movie = np.stack((first_frame, second_frame))
-    # movie = optical_flow.blur_movie(movie, smoothing_sigma=4)
+    movie = optical_flow.blur_movie(movie, smoothing_sigma=2)
     
-    iterations = 1000000
-    iteration_stepsize = 50000
+    iterations = 10000000
+    iteration_stepsize = 500000
     stepsizes = np.arange(0,iterations+0.5,iteration_stepsize,dtype = int)
     result = optical_flow.conduct_variational_optical_flow(movie,
                                                            delta_x = delta_x,
                                                            delta_t = 1.0,
                                                            alpha=1.0,
-                                                           v_x_guess=1.0,
-                                                           v_y_guess=1.0,
-                                                           remodelling_guess=0.05,
+                                                           v_x_guess=0.09,
+                                                           v_y_guess=0.09,
+                                                           remodelling_guess=0.07,
                                                            iterations = iterations,
                                                            smoothing_sigma = None,
                                                            return_iterations = True,
                                                            iteration_stepsize = iteration_stepsize,
                                                            use_jacobi = True,
-                                                           include_remodelling = False)
+                                                           include_remodelling = True)
     
     optical_flow.make_velocity_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
@@ -400,6 +400,52 @@ def test_and_time_new_numpy_method():
     print(np.max(result_new['speed'] - initial_speed))
 
  
+def make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05):
+    # make data
+    first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50)
+    second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 50)
+    first_frame-=0.8
+    second_frame-=0.8
+    first_frame[first_frame<0]=0.0
+    second_frame[second_frame<0]=0.0
+    noise_1 = np.random.random((50,50))
+    noise_2 = np.random.random((50,50))
+    # first_frame = np.abs(first_frame+noise_1*1e-3)
+    # second_frame = np.abs(second_frame+noise_2*1e-3)
+    movie = np.stack((first_frame, second_frame))
+    movie = optical_flow.blur_movie(movie, smoothing_sigma=3)
+    movie[1,:,:] +=remodelling
+
+    iterations = 1000000
+    iteration_stepsize = 50000
+    filename_start = os.path.join(os.path.dirname(__file__),'output','convergence_analysis_vx_'+ "{:.2f}".format(v_x)
+                                  + '_vy_' + "{:.2f}".format(v_x) + '_rmdlng_' +  "{:.2f}".format(remodelling) + '_iterations_' +str(iterations))
+    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    def animate(i): 
+        # plt.cla()
+        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    ani.save(os.path.join(filename_start + '_data_.mp4'),dpi=300) 
+ 
+    # call method
+    result = optical_flow.conduct_variational_optical_flow(movie,
+                                                           delta_x = delta_x,
+                                                           delta_t = 1.0,
+                                                           speed_alpha=1.0,
+                                                           remodelling_alpha = 10000.0,
+                                                           v_x_guess=0.09,
+                                                           v_y_guess=0.09,
+                                                           remodelling_guess=0.1,
+                                                           iterations = iterations,
+                                                           smoothing_sigma = None,
+                                                           return_iterations = True,
+                                                           iteration_stepsize = iteration_stepsize,
+                                                           use_jacobi = True,
+                                                           include_remodelling = True)
+ 
+    # plot convergence analysis
+    optical_flow.make_convergence_plots(result, filename_start = filename_start)
     
 if __name__ == '__main__':
     # make_and_visualise_in_silico_data()
@@ -407,5 +453,6 @@ if __name__ == '__main__':
     # reproduce_matlab_variational_flow_method()
     # reproduce_matlab_example_vortex_pair()
     # make_new_test_data_with_non_moving_boundary()
-    apply_method_to_data_with_non_moving_boundary()
+    # apply_method_to_data_with_non_moving_boundary()
     # test_and_time_new_numpy_method()
+    make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05)
