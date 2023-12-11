@@ -421,7 +421,6 @@ def liu_shen_optical_flow_jit(movie,
                              initial_v_y= np.zeros((10,10),dtype =float),
                              initial_remodelling=np.zeros((10,10),dtype =float),
                              iterations = 10,
-                             use_jacobi = False,
                              include_remodelling = True):
     """Perform variational optical flow on the movie.
     This method is experimental and has not been validated.
@@ -455,9 +454,6 @@ def liu_shen_optical_flow_jit(movie,
     iterations : int
         The number of jacobi iterations that we should use.
         
-    use_jacobi : bool
-        If True, the Jacobi iterative method instead of the Gauss-seidel iterative method will be used.
-
     include_remodelling : bool
         This argument is ignored, and exists to ensure that this method has the same call signature as our own implementation
         
@@ -500,10 +496,9 @@ def liu_shen_optical_flow_jit(movie,
         v_y = all_v_y[frame_index-1,:,:]
         remodelling= all_remodelling[frame_index-1,:,:]
         
-        if use_jacobi:
-            v_x_new = np.copy(v_x)
-            v_y_new = np.copy(v_y)
-            remodelling_new = np.copy(remodelling)
+        v_x_new = np.copy(v_x)
+        v_y_new = np.copy(v_y)
+        remodelling_new = np.copy(remodelling)
  
         for iteration_index in range(iterations):
             apply_constant_boundary_condition(v_x)
@@ -648,17 +643,11 @@ def liu_shen_optical_flow_jit(movie,
                     
                     new_state= matrix_A_inverse.dot(F)
                     
-                    if use_jacobi:
-                        v_x_new[pixel_index_x,pixel_index_y]=new_state[0]
-                        v_y_new[pixel_index_x,pixel_index_y]=new_state[1]
-                    else:
-                        v_x[pixel_index_x,pixel_index_y]=new_state[0]
-                        v_y[pixel_index_x,pixel_index_y]=new_state[1]
-                        if include_remodelling:
-                            remodelling[pixel_index_x,pixel_index_y]=new_state[2]
-            if use_jacobi:
-                v_x[:] = v_x_new[:]
-                v_y[:] = v_y_new[:]
+                    v_x_new[pixel_index_x,pixel_index_y]=new_state[0]
+                    v_y_new[pixel_index_x,pixel_index_y]=new_state[1]
+
+            v_x[:] = v_x_new[:]
+            v_y[:] = v_y_new[:]
    
     all_v_x = all_v_x[:,1:-1,1:-1]
     all_v_y = all_v_y[:,1:-1,1:-1]
@@ -710,7 +699,7 @@ def apply_numerical_derivative(matrix, rule):
     return derivative 
 
 @njit
-def variational_optical_flow_numpy_jit(movie,
+def variational_optical_flow_jit(movie,
                              delta_x = 1.0,
                              delta_t = 1.0,
                              speed_alpha = 1.0,
@@ -718,8 +707,8 @@ def variational_optical_flow_numpy_jit(movie,
                              initial_v_x=np.zeros((10,10),dtype =float),
                              initial_v_y= np.zeros((10,10),dtype =float),
                              initial_remodelling=np.zeros((10,10),dtype =float),
-                             iterations = 10,
-                             use_jacobi = True,
+                             max_iterations = 10,
+                             tolerance = 1e-10,
                              include_remodelling = True):
     """Perform variational optical flow on the movie.
     This method is experimental and has not been validated.
@@ -753,8 +742,9 @@ def variational_optical_flow_numpy_jit(movie,
     iterations : int
         The number of jacobi iterations that we should use.
         
-    use_jacobi : bool
-        We just always assume that this is True
+    tolerance : float
+        if the relative difference between successive iterations for all quantities (i.e. v_x, v_y, and remodelling) are less 
+        than this tolerance, then method stops
 
     include_remodelling : bool
         If False, the Liu-shen method will be used, and zeros will be returned for remodelling terms
@@ -819,9 +809,15 @@ def variational_optical_flow_numpy_jit(movie,
         dIdxx = apply_numerical_derivative(previous_frame_w_border, 'dxx')
         dIdyy = apply_numerical_derivative(previous_frame_w_border, 'dyy')
         dIdyx = apply_numerical_derivative(previous_frame_w_border, 'dyx')
-        dIdxy = dIdyx
 
-        for iteration_index in range(iterations):
+        total_num_iterations = 0
+        # last maximum stepsize among v_x, v_y, and remodelling
+        last_max_stepsize = 10*tolerance
+        
+        # This is useful to define outside the loop in case use_remodelling is False
+        remodelling_step = 10*tolerance
+    
+        while total_num_iterations < max_iterations and last_max_stepsize> tolerance:
             apply_constant_boundary_condition(v_x)
             apply_constant_boundary_condition(v_y)
             apply_constant_boundary_condition(remodelling)
@@ -906,375 +902,27 @@ def variational_optical_flow_numpy_jit(movie,
                 v_x_new[:] = inv_A_11*RHS_x + inv_A_12*RHS_y
                 v_y_new[:] = inv_A_12*RHS_x + inv_A_22*RHS_y
                     
-            # difference_x = v_x_new - v_x[1:-1,1:-1]
-            # difference_y = v_y_new - v_y[1:-1,1:-1]
-            # relaxation_factor = 1.0001
-            # v_x[1:-1,1:-1] = (1-relaxation_factor)*v_x[1:-1,1:-1] + relaxation_factor*v_x_new
-            # v_y[1:-1,1:-1] = (1-relaxation_factor)*v_y[1:-1,1:-1] + relaxation_factor*v_y_new
+            # relaxation_factor = 1.1
+            # v_x_new = (1-relaxation_factor)*v_x[1:-1,1:-1] + relaxation_factor*v_x_new
+            # v_y_new = (1-relaxation_factor)*v_y[1:-1,1:-1] + relaxation_factor*v_y_new
+            v_x_step = np.linalg.norm(v_x[1:-1,1:-1] - v_x_new)/ np.linalg.norm(v_x_new)
+            v_y_step = np.linalg.norm(v_y[1:-1,1:-1] - v_y_new)/ np.linalg.norm(v_y_new)
             v_x[1:-1,1:-1] = v_x_new
             v_y[1:-1,1:-1] = v_y_new
             if include_remodelling:
+                # remodelling_new = (1-relaxation_factor)*remodelling[1:-1,1:-1] + relaxation_factor*remodelling_new
+                remodelling_step = np.linalg.norm(remodelling[1:-1,1:-1] - remodelling_new)/ np.linalg.norm(remodelling_new)
                 remodelling[1:-1,1:-1] = remodelling_new
-   
-    all_v_x = all_v_x[:,1:-1,1:-1]
-    all_v_y = all_v_y[:,1:-1,1:-1]
-    all_remodelling = all_remodelling[:,1:-1,1:-1]
-
-    all_v_x *= delta_x/delta_t
-    all_v_y *= delta_x/delta_t
-    all_speed = np.sqrt(all_v_x**2+all_v_y**2)
-    return all_v_x, all_v_y, all_speed, all_remodelling
-
-
-
-# @jit(nopython = True)
-@njit
-def variational_optical_flow_jit(movie,
-                             delta_x = 1.0,
-                             delta_t = 1.0,
-                             alpha=100,
-                             initial_v_x=np.zeros((10,10),dtype =float),
-                             initial_v_y= np.zeros((10,10),dtype =float),
-                             initial_remodelling=np.zeros((10,10),dtype =float),
-                             iterations = 10,
-                             use_jacobi = False,
-                             include_remodelling = True):
-    """Perform variational optical flow on the movie.
-    This method is experimental and has not been validated.
-    
-    Parameters:
-    -----------
-    
-    movie : nd array, 3D
-        The movie we want to analyse. needs to be a single-colour movie.
-        The first dimension is the frame index, the other two dimensions are
-        x-pixel index and y-pixel index, respectively.
-        
-    delta_x : float
-        The size of one pixel. This is assumed to be the same in x and y direction
-        
-    delta_t : float
-        The length of the time interval between frames. This is assumed to be the same in x and y direction
-
-    alpha : float
-        The lagrange multiplier used in the method.
-        
-    v_x_guess : float
-        The initial guess for v_x
-
-    v_y_guess : float
-        The initial guess for v_x
-        
-    remodelling_guess : float
-        The initial guess for the net remodelling
-        
-    iterations : int
-        The number of jacobi iterations that we should use.
-        
-    use_jacobi : bool
-        If True, the Jacobi iterative method instead of the Gauss-seidel iterative method will be used.
-
-    include_remodelling : bool
-        If False, the Liu-shen method will be used, and zeros will be returned for remodelling terms
-        
-    Returns:
-    --------
-    
-    v_x : nd array
-        The x-velocities. The array has the same dimension as the movie argument, unless return_iterations is True
-        
-    v_y : nd array
-        The y-velocities. The array has the same dimension as the movie argumen, unless return_iterations is True.
-    
-    net_remodelling : nd array
-        The net remodelling. The array has the same dimension as the movie argumen, unless return_iterations is True.
-    """
-    # blurred_images= all_images(dtype=float)
-    I = movie[0,:,:]
-    number_of_frames = movie.shape[0]
-    number_of_Xpixels= movie.shape[1]
-    number_of_Ypixels= movie.shape[2]
-    
-    all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2), dtype = float)#previous 0.0001*0.019550342130987292
-    all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2), dtype = float)
-    all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2),dtype = float)   
-    movie_w_borders = np.zeros((number_of_frames,number_of_Xpixels+2,number_of_Ypixels+2),dtype = float)   
-    movie_w_borders[:,1:-1,1:-1] = movie   
-    apply_constant_boundary_condition(movie_w_borders[0])
-
-    for frame_index in range(1,movie.shape[0]):
-        current_frame = movie_w_borders[frame_index]
-        apply_constant_boundary_condition(current_frame)
-        previous_frame = movie_w_borders[frame_index -1]
-        # next_frame = movie[frame_index +1]
-        all_v_x[frame_index -1 ,1:-1,1:-1] = initial_v_x*delta_t/delta_x
-        all_v_y[frame_index -1 ,1:-1,1:-1] = initial_v_y*delta_t/delta_x
-        all_remodelling[frame_index -1 ,1:-1,1:-1] = initial_remodelling
-
-        v_x = all_v_x[frame_index-1,:,:]
-        v_y = all_v_y[frame_index-1,:,:]
-        remodelling= all_remodelling[frame_index-1,:,:]
-        
-        if use_jacobi:
-            v_x_new = np.copy(v_x)
-            v_y_new = np.copy(v_y)
-            remodelling_new = np.copy(remodelling)
-
-        dIdx = np.zeros_like(current_frame)
-        dIdy = np.zeros_like(current_frame)
-        dIdy = np.zeros_like(current_frame)
-        dIdx_t_all = np.zeros_like(current_frame)
-        dIdy_t_all = np.zeros_like(current_frame)
-        dIdt_all = np.zeros_like(current_frame)
-        dIdxx = np.zeros_like(current_frame)
-        dIdyy = np.zeros_like(current_frame)
-        dIdxy = np.zeros_like(current_frame)
-        dIdyx = np.zeros_like(current_frame)
-
-        # separate loop to define derivatives on image
-        for pixel_index_x in range(1,number_of_Xpixels+1):
-            for pixel_index_y in range(1,number_of_Ypixels +1):
-                #About I definitions           
-                # dIdx_ij = (current_frame[pixel_index_x+1,pixel_index_y] 
-                #            +previous_frame[pixel_index_x+1,pixel_index_y]
-                #            -current_frame[pixel_index_x-1,pixel_index_y]
-                #            -previous_frame[pixel_index_x-1,pixel_index_y])/4#dI/dx_ij  #h=delta_x in equation
-                # dIdy_ij = (current_frame[pixel_index_x,pixel_index_y+1]
-                #            +previous_frame[pixel_index_x,pixel_index_y+1]
-                #            -current_frame[pixel_index_x,pixel_index_y-1]
-                #            -previous_frame[pixel_index_x,pixel_index_y-1])/4#dI/dy_ij  #h=delta_x
-                dIdx[pixel_index_x, pixel_index_y] = (previous_frame[pixel_index_x+1,pixel_index_y]
-                          -previous_frame[pixel_index_x-1,pixel_index_y])/2#dI/dx_ij  #h=delta_x in equation
-                dIdy[pixel_index_x, pixel_index_y] = (previous_frame[pixel_index_x,pixel_index_y+1]
-                           -previous_frame[pixel_index_x,pixel_index_y-1])/2#dI/dy_ij  #h=delta_x
                 
-                #Use corss derivate to define Ixt, same asIx Iy         
-                # dIdx_t=(next_frame[pixel_index_x+1,pixel_index_y]
-                        # +previous_frame[pixel_index_x-1,pixel_index_y]
-                        # -next_frame[pixel_index_x-1,pixel_index_y]
-                        # -previous_frame[pixel_index_x+1,pixel_index_y])/4
-                # dIdy_t=(next_frame[pixel_index_x,pixel_index_y+1]
-                        # +previous_frame[pixel_index_x,pixel_index_y-1]
-                        # -next_frame[pixel_index_x,pixel_index_y-1]
-                        # -previous_frame[pixel_index_x,pixel_index_y+1])/4
-                        
-                dIdx_t_all[pixel_index_x, pixel_index_y]=(current_frame[pixel_index_x+1,pixel_index_y]
-                        -current_frame[pixel_index_x-1,pixel_index_y]
-                        -previous_frame[pixel_index_x+1,pixel_index_y]
-                        +previous_frame[pixel_index_x-1,pixel_index_y])/2
-                dIdy_t_all[pixel_index_x, pixel_index_y]=(current_frame[pixel_index_x,pixel_index_y+1]
-                        -current_frame[pixel_index_x,pixel_index_y-1]
-                        -previous_frame[pixel_index_x,pixel_index_y+1]
-                        +previous_frame[pixel_index_x,pixel_index_y-1])/2
+            last_max_stepsize = max((v_x_step, v_y_step, remodelling_step))
 
-                #easy form, can compare with the futher improve one
-                dIdt_all[pixel_index_x, pixel_index_y] = (current_frame[pixel_index_x,pixel_index_y]
-                        -previous_frame[pixel_index_x,pixel_index_y])#It=delta t
-
-                #further improve(can be used for other date with more frames)
-                #dIdt = (next_frame[pixel_index_x,pixel_index_y]-previous_frame[pixel_index_x,pixel_index_y])/(2*delta_t)                     
-                    
-                dIdxx[pixel_index_x, pixel_index_y] =(previous_frame[pixel_index_x+1,pixel_index_y]
-                           +previous_frame[pixel_index_x-1,pixel_index_y]
-                           -2*previous_frame[pixel_index_x,pixel_index_y])#Ixx
-                dIdyy[pixel_index_x, pixel_index_y] =(previous_frame[pixel_index_x,pixel_index_y+1]
-                           +previous_frame[pixel_index_x,pixel_index_y-1]
-                           -2*previous_frame[pixel_index_x,pixel_index_y])#Iyy
-                dIdyx[pixel_index_x, pixel_index_y] =(previous_frame[pixel_index_x+1,pixel_index_y+1]
-                           -previous_frame[pixel_index_x+1,pixel_index_y-1]
-                           -previous_frame[pixel_index_x-1,pixel_index_y+1]
-                           +previous_frame[pixel_index_x-1,pixel_index_y-1])/4#Iyx
-                dIdxy[pixel_index_x, pixel_index_y] = dIdyx[pixel_index_x, pixel_index_y] #Ixy=Iyx
- 
-        for iteration_index in range(iterations):
-            apply_constant_boundary_condition(v_x)
-            apply_constant_boundary_condition(v_y)
-            apply_constant_boundary_condition(remodelling)
-            #print(iteration_index)
-            for pixel_index_x in range(1,number_of_Xpixels+1):
-                for pixel_index_y in range(1,number_of_Ypixels +1):
-                    dxdVx_ij = (v_x[pixel_index_x+1,pixel_index_y]-v_x[pixel_index_x-1,pixel_index_y])/2#dVx/dx_ij
-                    dydVx_ij = (v_x[pixel_index_x,pixel_index_y+1]-v_x[pixel_index_x,pixel_index_y-1])/2#dVx/dy_ij
-                    dxydVx_ij = (v_x[pixel_index_x+1,pixel_index_y+1]
-                                 -v_x[pixel_index_x+1,pixel_index_y-1]
-                                 -v_x[pixel_index_x-1,pixel_index_y+1]
-                                 +v_x[pixel_index_x-1,pixel_index_y-1])/4#d^2Vx/dxdy_ij
-                    Vx_barx_ij = v_x[pixel_index_x+1,pixel_index_y]+v_x[pixel_index_x-1,pixel_index_y]
-                    # Vx_bary_ij = v_x[pixel_index_x,pixel_index_y+1]+v_x[pixel_index_x,pixel_index_y-1]
-                    Vx_bar_ij = (v_x[pixel_index_x-1,pixel_index_y]
-                                 +v_x[pixel_index_x+1,pixel_index_y]
-                                 +v_x[pixel_index_x,pixel_index_y+1]
-                                 +v_x[pixel_index_x,pixel_index_y-1])
-                    # this_neighbourhood = np.copy(v_x[pixel_index_x-1:pixel_index_x+2,pixel_index_y-1:pixel_index_y+2])
-                    # if pixel_index_x ==1:
-                        # this_neighbourhood[0,:] = 0.0
-                    # elif pixel_index_x == number_of_Xpixels:
-                        # this_neighbourhood[2,:] = 0.0
-                    # if pixel_index_y ==1:
-                        # this_neighbourhood[:,0] = 0.0
-                    # elif pixel_index_y == number_of_Ypixels:
-                        # this_neighbourhood[:,2] = 0.0
-#  
-                    # Vx_bar_ij = (this_neighbourhood[0,1]
-                                #  +this_neighbourhood[2,1]
-                                #  +this_neighbourhood[1,2]
-                                #  +this_neighbourhood[1,0]
-                                #  +this_neighbourhood[0,0]
-                                #  +this_neighbourhood[0,2]
-                                #  +this_neighbourhood[2,0]
-                                #  +this_neighbourhood[2,2])
-
-                    # dxxdVx = (v_x[pixel_index_x+1,pixel_index_y]
-                            #   +v_x[pixel_index_x-1,pixel_index_y]
-                            #   -2*v_x[pixel_index_x,pixel_index_y])#d^2Vx/dx^2_ij
-                    
-                   
-                    #Evy stencil definitions
-                    dxdVy_ij = (v_y[pixel_index_x+1,pixel_index_y]-v_y[pixel_index_x-1,pixel_index_y])/2#dVy/dx_ij
-                    dydVy_ij = (v_y[pixel_index_x,pixel_index_y+1]-v_y[pixel_index_x,pixel_index_y-1])/2#dVy/dy_ij
-                    dxydVy_ij = (v_y[pixel_index_x+1,pixel_index_y+1]
-                                 -v_y[pixel_index_x+1,pixel_index_y-1]
-                                 -v_y[pixel_index_x-1,pixel_index_y+1]
-                                 +v_y[pixel_index_x-1,pixel_index_y-1])/4#d^2Vy/dxdy_ij
-                    Vy_barx_ij = v_y[pixel_index_x+1,pixel_index_y]+v_y[pixel_index_x-1,pixel_index_y]
-                    Vy_bary_ij = v_y[pixel_index_x,pixel_index_y+1]+v_y[pixel_index_x,pixel_index_y-1]
-                    Vy_bar_ij = (v_y[pixel_index_x-1,pixel_index_y]
-                                 +v_y[pixel_index_x+1,pixel_index_y]
-                                 +v_y[pixel_index_x,pixel_index_y+1]
-                                 +v_y[pixel_index_x,pixel_index_y-1])
-                    this_neighbourhood = np.copy(v_y[pixel_index_x-1:pixel_index_x+2,pixel_index_y-1:pixel_index_y+2])
-                    # if pixel_index_x ==1:
-                        # this_neighbourhood[0,:] = 0.0
-                    # elif pixel_index_x == number_of_Xpixels:
-                        # this_neighbourhood[2,:] = 0.0
-                    # if pixel_index_y ==1:
-                        # this_neighbourhood[:,0] = 0.0
-                    # elif pixel_index_y == number_of_Ypixels:
-                        # this_neighbourhood[:,2] = 0.0
- 
-                    # Vy_bar_ij = (this_neighbourhood[0,1]
-                                #  +this_neighbourhood[2,1]
-                                #  +this_neighbourhood[1,2]
-                                #  +this_neighbourhood[1,0]
-                                #  +this_neighbourhood[0,0]
-                                #  +this_neighbourhood[0,2]
-                                #  +this_neighbourhood[2,0]
-                                #  +this_neighbourhood[2,2])
-
-                    dyydVy = (v_y[pixel_index_x,pixel_index_y+1]
-                              +v_y[pixel_index_x,pixel_index_y-1]
-                              -2*v_y[pixel_index_x,pixel_index_y])
-                    
-                    #Egamma stencil definition
-                    remodelling_bar_ij=(remodelling[pixel_index_x-1,pixel_index_y]
-                                        +remodelling[pixel_index_x+1,pixel_index_y]
-                                        +remodelling[pixel_index_x,pixel_index_y-1]
-                                        +remodelling[pixel_index_x,pixel_index_y+1])             
-                    remodelling_x=(remodelling[pixel_index_x+1,pixel_index_y]-remodelling[pixel_index_x-1,pixel_index_y])/2 #same as define Vxx, Ix...
-                    remodelling_y=(remodelling[pixel_index_x,pixel_index_y+1]-remodelling[pixel_index_x,pixel_index_y-1])/2 
-
-                    dIdx_ij = dIdx[pixel_index_x, pixel_index_y]
-                    dIdy_ij = dIdy[pixel_index_x, pixel_index_y]
-                    dIdy_ij = dIdy[pixel_index_x, pixel_index_y]
-                    dIdx_t  = dIdx_t_all[pixel_index_x, pixel_index_y]
-                    dIdy_t  = dIdy_t_all[pixel_index_x, pixel_index_y]
-                    dIdt     =dIdt_all[pixel_index_x, pixel_index_y]  
-                    dIdxx_ij =dIdxx[pixel_index_x, pixel_index_y] 
-                    dIdyy_ij =dIdyy[pixel_index_x, pixel_index_y] 
-                    dIdxy_ij =dIdxy[pixel_index_x, pixel_index_y] 
-                    dIdyx_ij =dIdyx[pixel_index_x, pixel_index_y] 
-
-                    if include_remodelling:
-                    ## Original RHS
-                        F=np.array([current_frame[pixel_index_x,pixel_index_y]*(remodelling_x-dIdx_t)
-                                    -current_frame[pixel_index_x,pixel_index_y]*
-                                        (2*dIdx_ij*dxdVx_ij+dIdy_ij*dxdVy_ij+dIdx_ij*dydVy_ij)
-                                    -current_frame[pixel_index_x,pixel_index_y]**2*
-                                        (Vx_barx_ij+dxydVy_ij)-alpha*Vx_bar_ij,
-                                    #
-                                    current_frame[pixel_index_x,pixel_index_y]*(remodelling_y-dIdy_t)
-                                    -current_frame[pixel_index_x,pixel_index_y]*
-                                        (2*dIdy_ij*dydVy_ij+dIdx_ij*dydVx_ij+dIdy_ij*dxdVx_ij)
-                                    -current_frame[pixel_index_x,pixel_index_y]**2*(Vy_bary_ij+dxydVx_ij)-alpha*Vy_bar_ij,
-                                    #
-                                    dIdt+current_frame[pixel_index_x,pixel_index_y]*dxdVx_ij
-                                    +current_frame[pixel_index_x,pixel_index_y]*dydVy_ij
-                                    +alpha*remodelling_bar_ij])
-     
-                        # Original matrix
-                        matrix_A=np.array([[current_frame[pixel_index_x,pixel_index_y]*dIdxx_ij 
-                                                    -2*current_frame[pixel_index_x,pixel_index_y]**2
-                                                    -4*alpha,
-                                                current_frame[pixel_index_x,pixel_index_y]*dIdyx_ij,0],
-                                               #
-                                              [current_frame[pixel_index_x,pixel_index_y]*dIdxy_ij,
-                                               current_frame[pixel_index_x,pixel_index_y]*dIdyy_ij 
-                                                   -2*current_frame[pixel_index_x,pixel_index_y]**2
-                                                   -4*alpha,
-                                                0],
-                                               #
-                                              [-dIdx_ij,-dIdy_ij,1+4*alpha]])
-
-                    else:
-                        # if pixel_index_x ==number_of_Xpixels-2 and pixel_index_y ==number_of_Ypixels-2:
-                            # print(previous_frame[pixel_index_x,pixel_index_y]*(dIdx_ij))
-                            # print(previous_frame[pixel_index_x,pixel_index_y]**2)
-                            # print(previous_frame[pixel_index_x,pixel_index_y]*(dIdy_ij))
-                    #RHS without remodelling
-                        F=np.array([-previous_frame[pixel_index_x,pixel_index_y]*(dIdx_t)
-                                    -previous_frame[pixel_index_x,pixel_index_y]*
-                                        (2*dIdx_ij*dxdVx_ij+dIdy_ij*dxdVy_ij+dIdx_ij*dydVy_ij)
-                                    -previous_frame[pixel_index_x,pixel_index_y]**2*
-                                        (Vx_barx_ij+dxydVy_ij)-alpha*Vx_bar_ij,
-                                    #
-                                    -previous_frame[pixel_index_x,pixel_index_y]*(dIdy_t)
-                                    -previous_frame[pixel_index_x,pixel_index_y]*
-                                        (2*dIdy_ij*dydVy_ij+dIdx_ij*dydVx_ij+dIdy_ij*dxdVx_ij)
-                                    -previous_frame[pixel_index_x,pixel_index_y]**2*(Vy_bary_ij+dxydVx_ij)-alpha*Vy_bar_ij])
-                        
-                        # Matrix without remodelling
-                        boundary_prefactor = 4
-                        # if pixel_index_x ==1 or pixel_index_x == number_of_Xpixels:
-                            # if pixel_index_y == 1 or pixel_index_y == number_of_Ypixels:
-                                # boundary_prefactor = 3
-                            # else:
-                                # boundary_prefactor = 5
-                        # if pixel_index_y ==1 or pixel_index_y == number_of_Ypixels:
-                            # if pixel_index_x == 1 or pixel_index_x == number_of_Xpixels:
-                                # boundary_prefactor = 3
-                            # else:
-                                # boundary_prefactor = 5
-                            
-                        matrix_A=np.array([[previous_frame[pixel_index_x,pixel_index_y]*dIdxx_ij 
-                                                -2*previous_frame[pixel_index_x,pixel_index_y]**2
-                                                -boundary_prefactor*alpha,
-                                            previous_frame[pixel_index_x,pixel_index_y]*dIdyx_ij],
-                                           #
-                                          [previous_frame[pixel_index_x,pixel_index_y]*dIdxy_ij,
-                                           previous_frame[pixel_index_x,pixel_index_y]*dIdyy_ij 
-                                               -2*previous_frame[pixel_index_x,pixel_index_y]**2
-                                               -boundary_prefactor*alpha]])
-                                           #
-        
-                    matrix_A_inverse=np.linalg.inv(matrix_A)
-                    
-                    new_state= matrix_A_inverse.dot(F)
-                    
-                    if use_jacobi:
-                        v_x_new[pixel_index_x,pixel_index_y]=new_state[0]
-                        v_y_new[pixel_index_x,pixel_index_y]=new_state[1]
-                        if include_remodelling:
-                            remodelling_new[pixel_index_x,pixel_index_y]=new_state[2]
-                    else:
-                        v_x[pixel_index_x,pixel_index_y]=new_state[0]
-                        v_y[pixel_index_x,pixel_index_y]=new_state[1]
-                        if include_remodelling:
-                            remodelling[pixel_index_x,pixel_index_y]=new_state[2]
-            if use_jacobi:
-                v_x[:] = v_x_new[:]
-                v_y[:] = v_y_new[:]
-                if include_remodelling:
-                    remodelling[:] = remodelling_new[:]
+            total_num_iterations +=1
+            if total_num_iterations%10000 == 0:
+                print('passed ' + str(total_num_iterations) + ' iterations, the current stepsize in v_x, v_y, and remodelling are: ' )
+                print(v_x_step) 
+                print(v_y_step) 
+                print(remodelling_step) 
+                print('')
    
     all_v_x = all_v_x[:,1:-1,1:-1]
     all_v_y = all_v_y[:,1:-1,1:-1]
@@ -1283,7 +931,7 @@ def variational_optical_flow_jit(movie,
     all_v_x *= delta_x/delta_t
     all_v_y *= delta_x/delta_t
     all_speed = np.sqrt(all_v_x**2+all_v_y**2)
-    return all_v_x, all_v_y, all_speed, all_remodelling
+    return all_v_x, all_v_y, all_speed, all_remodelling, total_num_iterations
 
 @njit
 def apply_constant_boundary_condition(image = np.zeros((10,10),dtype = float)):
@@ -1307,14 +955,13 @@ def conduct_variational_optical_flow(movie,
                                      v_x_guess=0.1,
                                      v_y_guess= 0.1,
                                      remodelling_guess=0.5,
-                                     iterations = 10,
+                                     max_iterations = 10,
                                      smoothing_sigma = None,
                                      return_iterations = False,
                                      iteration_stepsize = 1,
-                                     use_jacobi = False,
+                                     tolerance = 1e-10,
                                      include_remodelling = True,
-                                     use_liu_shen = False,
-                                     use_legacy = False):
+                                     use_liu_shen = False):
     """Conduct optical flow as in Vig et al. Biophysical Journal 110, 1469–1475, 2016.
     
     Parameters:
@@ -1344,7 +991,7 @@ def conduct_variational_optical_flow(movie,
     remodelling_guess : float
         The initial guess for the net remodelling
         
-    iterations : int
+    max_iterations : int
         The number of jacobi iterations that we should use.
  
     smoothing_sigma : float or None
@@ -1359,9 +1006,10 @@ def conduct_variational_optical_flow(movie,
         if return_iterations is True, this will enforce that iterations are subsampled with this interval,
         i.e. only ever iteration_stepsize step will be recorded
     
-    use_jacobi : bool
-        if True, the Jacobi iterative method instead of the Gauss-Seidel iterative method will be used
-
+    tolerance : float
+        if the relative difference between successive iterations for all quantities (i.e. v_x, v_y, and remodelling) are less 
+        than this tolerance, then method stops
+    
     include_remodelling : bool
         whether to include remodelling in the calculation. If this is False, the Liu-Shen method will be used
     
@@ -1375,33 +1023,34 @@ def conduct_variational_optical_flow(movie,
         A dictionary containing the results of optical flow calculations, as well as arrays for the orignal and blurred data.
         The keys are: v_x, v_y, speed, original_data, blurred_data, delta_x, delta_t
     """
-    print(delta_x)
-    
     if smoothing_sigma is not None:
         movie_to_analyse = blur_movie(movie, smoothing_sigma=smoothing_sigma)
     else:
         movie_to_analyse = movie
         
-    if use_liu_shen and not use_legacy:
+    if use_liu_shen:
         optical_flow_method = liu_shen_optical_flow_jit
-    elif use_legacy:
-        optical_flow_method = variational_optical_flow_jit
     else: 
-        optical_flow_method = variational_optical_flow_numpy_jit
-        
+        optical_flow_method = variational_optical_flow_jit
 
     initial_v_x = np.full((movie.shape[1],movie.shape[2]),float(v_x_guess)) 
     initial_v_y = np.full((movie.shape[1],movie.shape[2]),float(v_y_guess)) 
     initial_remodelling = np.full((movie.shape[1],movie.shape[2]),float(remodelling_guess)) 
-    print('initial matrices have means')
+    print('starting optical flow calculations')
+    print('')
+    print('initial matrices have the following means')
+    print('v_x:')
     print(np.mean(initial_v_x))
+    print('v_y:')
     print(np.mean(initial_v_y))
+    print('remodelling:')
     print(np.mean(initial_remodelling))
+    print('speed:')
     print(np.mean(np.sqrt(initial_v_x**2 + initial_v_y**2)))
 
     result = dict()
     if return_iterations:
-        this_v_x, this_v_y, this_speed, this_remodelling = optical_flow_method(movie_to_analyse, 
+        this_v_x, this_v_y, this_speed, this_remodelling, this_iteration_number = optical_flow_method(movie_to_analyse, 
                                                                                     delta_x,
                                                                                     delta_t,
                                                                                     speed_alpha,
@@ -1409,16 +1058,16 @@ def conduct_variational_optical_flow(movie,
                                                                                     initial_v_x,
                                                                                     initial_v_y,
                                                                                     initial_remodelling,
-                                                                                    iterations = iteration_stepsize,
-                                                                                    use_jacobi = use_jacobi,
+                                                                                    max_iterations = iteration_stepsize,
+                                                                                    tolerance = tolerance,
                                                                                     include_remodelling = include_remodelling)
 
-        print('at iteration 0')
+        print('at iteration ' + str(iteration_stepsize))
         print('this mean_speed is')
         print(np.mean(this_speed))
         print('this mean remodelling iis')
         print(np.mean(this_remodelling))
-        number_of_recorded_iterations = iterations//iteration_stepsize
+        number_of_recorded_iterations = max_iterations//iteration_stepsize
 
         all_v_x = np.zeros((this_v_x.shape[0], number_of_recorded_iterations + 1, this_v_x.shape[1], this_v_x.shape[2])) 
         all_v_y = np.zeros_like(all_v_x)
@@ -1436,8 +1085,10 @@ def conduct_variational_optical_flow(movie,
         all_speed[:,1,:,:] = this_speed
         all_remodelling[:,1,:,:] = this_remodelling
 
+        tolerance_reached = False
+        total_iterations = max_iterations
         for iteration_index in range(2,number_of_recorded_iterations+1):
-            this_v_x, this_v_y, this_speed, this_remodelling = optical_flow_method(movie_to_analyse, 
+            this_v_x, this_v_y, this_speed, this_remodelling, this_iteration_number = optical_flow_method(movie_to_analyse, 
                                                                                     delta_x,
                                                                                     delta_t,
                                                                                     speed_alpha,
@@ -1445,19 +1096,27 @@ def conduct_variational_optical_flow(movie,
                                                                                     this_v_x,
                                                                                     this_v_y,
                                                                                     this_remodelling,
-                                                                                    iterations = iteration_stepsize,
-                                                                                    use_jacobi = use_jacobi,
+                                                                                    max_iterations = iteration_stepsize,
+                                                                                    tolerance = tolerance,
                                                                                     include_remodelling = include_remodelling)
-            print('at iteration' + str(iteration_index*iteration_stepsize))
+            print('at iteration ' + str(iteration_index*iteration_stepsize))
             print('this mean_speed is')
             print(np.mean(this_speed))
             print('this mean remodelling is')
             print(np.mean(this_remodelling))
+            print('')
 
             all_v_x[:,iteration_index,:,:] = this_v_x
             all_v_y[:,iteration_index,:,:] = this_v_y
             all_speed[:,iteration_index,:,:] = this_speed
             all_remodelling[:,iteration_index,:,:] = this_remodelling
+            
+            if this_iteration_number< iteration_stepsize and not tolerance_reached:
+                total_iterations = (iteration_index -1) * iteration_stepsize + this_iteration_number
+                print('')
+                print('I reached the required tolerance within ' + str(total_iterations) + ' iterations. All remaining iteration steps will only contain one step instead of ' + str(iteration_index))
+                print('')
+                print(tolerance_reached)
 
         result['v_x'] = all_v_x[:,-1,:,:]
         result['v_y'] = all_v_y[:,-1,:,:]
@@ -1471,7 +1130,7 @@ def conduct_variational_optical_flow(movie,
         result['iteration_stepsize'] = iteration_stepsize
 
     else:
-        all_v_x, all_v_y, all_speed, all_remodelling = optical_flow_method(movie_to_analyse, 
+        all_v_x, all_v_y, all_speed, all_remodelling, total_iterations = optical_flow_method(movie_to_analyse, 
                                                                                     delta_x,
                                                                                     delta_t,
                                                                                     speed_alpha,
@@ -1479,19 +1138,23 @@ def conduct_variational_optical_flow(movie,
                                                                                     initial_v_x,
                                                                                     initial_v_y,
                                                                                     initial_remodelling,
-                                                                                    iterations,
-                                                                                    use_jacobi=use_jacobi,
+                                                                                    max_iterations,
+                                                                                    tolerance = tolerance,
                                                                                     include_remodelling = include_remodelling)
         result['v_x'] = all_v_x
         result['v_y'] = all_v_y
         result['speed'] = all_speed
         result['remodelling'] = all_remodelling
 
+    print('')
+    print('optical flow calculations finished after ' + str(total_iterations) + ' iterations')
+    print('')
     result['original_data'] = movie
     result['delta_x'] = delta_x
     result['delta_t'] = delta_t
     result['blurred_data'] = all_remodelling
-    result['iterations'] = iterations
+    result['max_iterations'] = max_iterations
+    result['total_iterations'] = total_iterations
     
     return result
 
@@ -1678,7 +1341,7 @@ def make_convergence_plots(result, filename_start):
         
     Returns nothing.
     """
-    iterations = result['iterations']
+    iterations = result['max_iterations']
     iteration_stepsize = result['iteration_stepsize']
     delta_x = result['delta_x']
     original_data = result['original_data']
@@ -1782,4 +1445,69 @@ def make_convergence_plots(result, filename_start):
     ani = FuncAnimation(fig, animate, frames=result['speed_steps'].shape[1])
     ani.save(filename_start + 'compound_figures.mp4',dpi=300)
  
+def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', 
+                                autoscale = False, arrow_color = 'magenta', v_min = 0.0, v_max = 255.0):   
+    """Plot a optical flow velocity result. In addition to the raw data and arrows, it also includes the 
+    speed and remodelling.
+    
+    Parameters :
+    ------------
+    
+    flow_result : dict
+        output of our optical flow calculations
+    
+    filename : string
+        saving location
+        
+    boxsize : int
+        size of the box around each arrow in pixels
+        
+    arrow_scale : float
+        scaling paramter to change the length of arrows
+        
+    cmap : string
+        name of a matplotlib colormap to be used
+        
+    arrow_color : string
+        maptlotlib name of the color of the arrows
+        
+    autoscale : bool
+        if True, the image will be displayed using matplotlib's autoscaling.
+        Otherwise, the image will be displayed using the scale (v_min,v_max)
+        
+    v_min : float
+        pixels equal to or below this image intensity will be white in inverted grayscale
+        
+    v_max : float
+        pixels equal to or above this image intensity will be black in inverted grayscale
+    """
+    original_data = flow_result['original_data']
    
+    x_positions, y_positions, v_x, v_y = subsample_velocities_for_visualisation(flow_result, arrow_boxsize = arrow_boxsize)
+
+    fig = plt.figure(figsize = (6.5,2.5), constrained_layout = True)
+    def animate(i): 
+        plt.clf()
+        plt.subplot(131)
+        costum_imshow(original_data[i,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale, v_min = v_min, v_max = v_max)
+        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        
+        plt.subplot(132)
+        costum_imshow(flow_result['speed'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'viridis')
+        plt.ylabel('')
+        colorbar = plt.colorbar(shrink = 0.6)
+        plt.clim(np.min(flow_result['speed']),np.max(flow_result['speed']))
+        # colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
+        plt.title('Motion speed [$\mathrm{\mu m}$/s]')
+
+        plt.subplot(133)
+        costum_imshow(flow_result['remodelling'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
+        plt.ylabel('')
+        colorbar = plt.colorbar(shrink = 0.6)
+        plt.clim(np.min(flow_result['remodelling']),np.max(flow_result['remodelling']))
+        # colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
+        plt.title('Net remodelling')
+
+    ani = FuncAnimation(fig, animate, frames=original_data.shape[0]-1)
+    #ani.save('Visualizing Velocity.gif')
+    ani.save(filename,dpi=600) 
