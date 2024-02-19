@@ -849,7 +849,7 @@ def variational_optical_flow_jit(movie,
                               (2*dIdy*dydVy_ij+dIdx*dydVx_ij+dIdy*dxdVx_ij)
                          -previous_frame**2*(Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
                                     #
-                RHS_remodelling = -(dIdt+previous_frame*dxdVx_ij
+                RHS_remodelling = +(dIdt+previous_frame*dxdVx_ij
                                      +previous_frame*dydVy_ij
                                      +remodelling_alpha*remodelling_bar)
      
@@ -859,7 +859,7 @@ def variational_optical_flow_jit(movie,
                 A22 = previous_frame*dIdyy -2*previous_frame**2-4*speed_alpha
                 A31 = -dIdx
                 A32 = -dIdy
-                A33 = -(1+4*remodelling_alpha)
+                A33 = +(1+4*remodelling_alpha)
                 
                 # This is not the actual determinant, but the 2D top left sub-determinant
                 det_A = A11*A22 - A12*A12
