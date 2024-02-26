@@ -139,7 +139,10 @@ def illustrate_boundary_artifacts():
     
     filename_start = os.path.join(os.path.dirname(__file__),'output','boundary_example')
     
-    max_iterations = 500000
+    # max_iterations = 200000
+    # iteration_stepsize = 10000
+    max_iterations = 10
+    iteration_stepsize = 1
 
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -155,14 +158,18 @@ def illustrate_boundary_artifacts():
                                                            delta_t = 1.0,
                                                            speed_alpha=1.0,
                                                            remodelling_alpha = 10000.0,
-                                                           v_x_guess=0.01,
-                                                           v_y_guess=0.01,
-                                                           remodelling_guess=0.00,
+                                                           v_x_guess=0.1,
+                                                           v_y_guess=0.1,
+                                                           remodelling_guess=0.05,
                                                            max_iterations = max_iterations,
+                                                           iteration_stepsize = iteration_stepsize,
                                                            smoothing_sigma = None,
                                                            tolerance = 1e-9,
-                                                           include_remodelling = True)
+                                                           include_remodelling = True,
+                                                           return_iterations = True)
     
+    optical_flow.make_convergence_plots(result, filename_start = filename_start)
+
     optical_flow.make_joint_overlay_movie(result, 
                                              filename_start + '_joint_result.mp4', 
                                              autoscale = True,
