@@ -135,14 +135,15 @@ def illustrate_boundary_artifacts():
     v_y = 0.2
     first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50)
     second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 50)
+    second_frame += 0.05
     movie = np.stack((first_frame, second_frame))
     
     filename_start = os.path.join(os.path.dirname(__file__),'output','boundary_example')
     
-    # max_iterations = 200000
-    # iteration_stepsize = 10000
-    max_iterations = 10
-    iteration_stepsize = 1
+    max_iterations = 200000
+    iteration_stepsize = 10000
+    # max_iterations = 10
+    # iteration_stepsize = 1
 
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -158,9 +159,9 @@ def illustrate_boundary_artifacts():
                                                            delta_t = 1.0,
                                                            speed_alpha=1.0,
                                                            remodelling_alpha = 10000.0,
-                                                           v_x_guess=0.1,
-                                                           v_y_guess=0.1,
-                                                           remodelling_guess=0.05,
+                                                           v_x_guess=0.01,
+                                                           v_y_guess=0.01,
+                                                           remodelling_guess=0.00,
                                                            max_iterations = max_iterations,
                                                            iteration_stepsize = iteration_stepsize,
                                                            smoothing_sigma = None,

@@ -762,17 +762,19 @@ def variational_optical_flow_jit(movie,
         The net remodelling. The array has the same dimension as the movie argumen, unless return_iterations is True.
     """
     # blurred_images= all_images(dtype=float)
-    I = movie[0,:,:]
     number_of_frames = movie.shape[0]
     number_of_Xpixels= movie.shape[1]
     number_of_Ypixels= movie.shape[2]
     
-    all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2), dtype = float)#previous 0.0001*0.019550342130987292
-    all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2), dtype = float)
-    all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2),dtype = float)   
-    movie_w_borders = np.zeros((number_of_frames,number_of_Xpixels+2,number_of_Ypixels+2),dtype = float)   
-    movie_w_borders[:,1:-1,1:-1] = movie   
-    apply_constant_boundary_condition(movie_w_borders[0])
+    all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)#previous 0.0001*0.019550342130987292
+    all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)
+    all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels),dtype = float)   
+    # movie_w_borders = np.zeros((number_of_frames,number_of_Xpixels,number_of_Ypixels),dtype = float)   
+    # movie_w_borders = np.zeros((number_of_frames,number_of_Xpixels,number_of_Ypixels),dtype = float)   
+    movie_w_borders = movie   
+    movie_bulk = movie_w_borders[:,1:-1,1:-1]
+    # movie_w_borders[:,1:-1,1:-1] = movie   
+    # apply_constant_boundary_condition(movie_w_borders[0])
     # movie_w_borders[0][0,:] = movie_w_borders[0][1,:] + movie_w_borders[0][2,:] - movie_w_borders[0][3,:] 
     # movie_w_borders[0][-1,:] = movie_w_borders[0][-2,:] + movie_w_borders[0][-3,:]- movie_w_borders[0][-4,:] 
     # movie_w_borders[0][:,0] = movie_w_borders[0][:,1] + movie_w_borders[0][:,2] - movie_w_borders[0][:,3] 
@@ -801,8 +803,6 @@ def variational_optical_flow_jit(movie,
         # current_frame_w_border[0,-1]  = (current_frame_w_border[0,-2]  + current_frame_w_border[1,-1]  + current_frame_w_border[1,-2] )/3
         # current_frame_w_border[-1,-1] = (current_frame_w_border[-1,-2] + current_frame_w_border[-2,-1] + current_frame_w_border[-2,-2])/3
 
- 
-
         previous_frame = previous_frame_w_border[1:-1,1:-1]
         current_frame = current_frame_w_border[1:-1,1:-1]
         # next_frame = movie[frame_index +1]
@@ -817,9 +817,9 @@ def variational_optical_flow_jit(movie,
         v_y = all_v_y[frame_index-1,:,:]
         remodelling= all_remodelling[frame_index-1,:,:]
         
-        v_x_new = np.copy(v_x[1:-1,1:-1])
-        v_y_new = np.copy(v_y[1:-1,1:-1])
-        remodelling_new = np.copy(remodelling[1:-1,1:-1])
+        v_x_new = np.copy(v_x)
+        v_y_new = np.copy(v_y)
+        remodelling_new = np.copy(remodelling)
 
         dIdx = apply_numerical_derivative(previous_frame_w_border,'dx')#dI/dx_ij  #h=delta_x in equation
         dIdy = apply_numerical_derivative(previous_frame_w_border,'dy')#dI/dx_ij  #h=delta_x in equation
@@ -838,47 +838,193 @@ def variational_optical_flow_jit(movie,
         dIdyy = apply_numerical_derivative(previous_frame_w_border, 'dyy')
         dIdyx = apply_numerical_derivative(previous_frame_w_border, 'dyx')
 
+        ####Set up all boundary conditions
+        ## LHS Matrix for the bulk
+        A11 = (previous_frame*dIdxx -2*previous_frame**2 -4*speed_alpha)
+        A12 = previous_frame*dIdyx
+        A22 = previous_frame*dIdyy -2*previous_frame**2-4*speed_alpha
+        A31 = -dIdx
+        A32 = -dIdy
+        A33 = +(1+4*remodelling_alpha)
+    
+        # This is not the actual determinant, but the 2D top left sub-determinant
+        det_A = A11*A22 - A12*A12
+
+        # inverse of the matrix
+        inv_A11 = A22/det_A
+        inv_A12 = -A12/det_A
+        inv_A22 = A11/det_A
+        inv_A31 = (A32*A12 - A22*A31)/(det_A*A33)
+        inv_A32 = (A12*A31 - A32*A11)/(det_A*A33)
+        inv_A33 = 1/A33
+ 
+        # LHS matrix Top boundary
+        CT11 = -previous_frame[0,:]*previous_frame[0,:]/2 - speed_alpha/2
+        CT14 = previous_frame[0,:]*dIdx[0,:]
+        CT15 = previous_frame[0,:]*dIdy[0,:]
+        CT16 = -previous_frame[0,:]
+        CT41 = -previous_frame[0,:]*dIdx[0,:] +previous_frame[0,:]*previous_frame[0,:] + speed_alpha
+        CT51 = -previous_frame[0,:]*dIdy[0,:]/2
+        CT61 = previous_frame[0,:]/2
+        
+        DT11 = A11[0,:] - CT41*CT14/CT11
+        DT12 = A12[0,:] - CT41*CT15/CT11
+        DT13 = - CT41*CT16/CT11
+        DT21 = A12[0,:] - CT51*CT14/CT11
+        DT22 = A22[0,:] - CT51*CT15/CT11
+        DT23 = - CT51*CT16/CT11
+        DT31 = A31[0,:] - CT61*CT14/CT11
+        DT32 = A32[0,:] - CT61*CT15/CT11
+        DT33 = A33 - CT61*CT16/CT11
+    
+        det_DT = (DT11*DT22*DT33 + DT12*DT23*DT31 + DT13*DT21*DT32 
+                 - DT13*DT22*DT31 - DT12*DT21*DT33 - DT11*DT23*DT32)
+    
+        # inverse of the matrix
+        inv_DT11 = DT22*DT33 - DT23*DT32
+        inv_DT12 = DT13*DT32 - DT12*DT33
+        inv_DT13 = DT12*DT23 - DT13*DT22
+        inv_DT21 = DT23*DT31 - DT21*DT33
+        inv_DT22 = DT11*DT33 - DT13*DT31
+        inv_DT23 = DT13*DT21 - DT11*DT23
+        inv_DT31 = DT32*DT21 - DT22*DT31
+        inv_DT32 = DT12*DT31 - DT32*DT11
+        inv_DT33 = DT11*DT22 - DT12*DT21
+ 
+        # LHS Matrix bottom boundary
+        CB11 = previous_frame[-1,:]*previous_frame[-1,:]/2 + speed_alpha/2
+        CB14 = previous_frame[-1,:]*dIdx[-1,:]
+        CB15 = previous_frame[-1,:]*dIdy[-1,:]
+        CB16 = -previous_frame[-1,:]
+        CB41 = previous_frame[-1,:]*dIdx[-1,:] +previous_frame[-1,:]*previous_frame[-1,:] + speed_alpha
+        CB51 = previous_frame[-1,:]*dIdy[-1,:]/2
+        CB61 = -previous_frame[-1,:]/2
+        
+        DB11 = A11[-1,:] - CB41*CB14/CB11
+        DB12 = A12[-1,:] - CB41*CB15/CB11
+        DB13 = - CB41*CB16/CB11
+        DB21 = A12[-1,:] - CB51*CB14/CB11
+        DB22 = A22[-1,:] - CB51*CB15/CB11
+        DB23 = - CB51*CB16/CB11
+        DB31 = A31[-1,:] - CB61*CB14/CB11
+        DB32 = A32[-1,:] - CB61*CB15/CB11
+        DB33 = A33 - CB61*CB16/CB11
+    
+        det_DB = (DB11*DB22*DB33 + DB12*DB23*DB31 + DB13*DB21*DB32 
+                 - DB13*DB22*DB31 - DB12*DB21*DB33 - DB11*DB23*DB32)
+    
+        # inverse of the matrix
+        inv_DB11 = DB22*DB33 - DB23*DB32
+        inv_DB12 = DB13*DB32 - DB12*DB33
+        inv_DB13 = DB12*DB23 - DB13*DB22
+        inv_DB21 = DB23*DB31 - DB21*DB33
+        inv_DB22 = DB11*DB33 - DB13*DB31
+        inv_DB23 = DB13*DB21 - DB11*DB23
+        inv_DB31 = DB32*DB21 - DB22*DB31
+        inv_DB32 = DB12*DB31 - DB32*DB11
+        inv_DB33 = DB11*DB22 - DB12*DB21
+ 
+        # LHS Matrix left boundary
+        CL22 = -previous_frame[:,0]*previous_frame[:,0]/2 - speed_alpha/2
+        CL24 = previous_frame[:,0]*dIdx[:,0]
+        CL25 = previous_frame[:,0]*dIdy[:,0]
+        CL26 = -previous_frame[:,0]
+        CL42 = -previous_frame[:,0]*dIdx[:,0]/2
+        CL52 = -previous_frame[:,0]*dIdy[:,0] +previous_frame[:,0]*previous_frame[:,0] + speed_alpha
+        CL62 = previous_frame[:,0]/2
+        
+        DL11 = A11[:,0] - CL42*CL24/CL22
+        DL12 = A12[:,0] - CL42*CL25/CL22
+        DL13 = - CL42*CL26/CL22
+        DL21 = A12[:,0] - CL52*CL24/CL22
+        DL22 = A22[:,0] - CL52*CL25/CL22
+        DL23 = - CL52*CL26/CL22
+        DL31 = A31[:,0] - CL62*CL24/CL22
+        DL32 = A32[:,0] - CL62*CL25/CL22
+        DL33 = A33 - CL62*CL26/CL22
+    
+        det_DL = (DL11*DL22*DL33 + DL12*DL23*DL31 + DL13*DL21*DL32 
+                 - DL13*DL22*DL31 - DL12*DL21*DL33 - DL11*DL23*DL32)
+    
+        # inverse of the matrix
+        inv_DL11 = DL22*DL33 - DL23*DL32
+        inv_DL12 = DL13*DL32 - DL12*DL33
+        inv_DL13 = DL12*DL23 - DL13*DL22
+        inv_DL21 = DL23*DL31 - DL21*DL33
+        inv_DL22 = DL11*DL33 - DL13*DL31
+        inv_DL23 = DL13*DL21 - DL11*DL23
+        inv_DL31 = DL32*DL21 - DL22*DL31
+        inv_DL32 = DL12*DL31 - DL32*DL11
+        inv_DL33 = DL11*DL22 - DL12*DL21
+ 
+        # LHS Matrix right boundary
+        CR22 = previous_frame[:,-1]*previous_frame[:,-1]/2 + speed_alpha/2
+        CR24 = previous_frame[:,-1]*dIdx[:,-1]
+        CR25 = previous_frame[:,-1]*dIdy[:,-1]
+        CR26 = -previous_frame[:,-1]
+        CR42 = previous_frame[:,-1]*dIdx[:,-1]/2
+        CR52 = previous_frame[:,-1]*dIdy[:,-1] +previous_frame[:,-1]*previous_frame[:,-1] + speed_alpha
+        CR62 = -previous_frame[:,-1]/2
+        
+        DR11 = A11[:,-1] - CR42*CR24/CR22
+        DR12 = A12[:,-1] - CR42*CR25/CR22
+        DR13 = - CR42*CR26/CR22
+        DR21 = A12[:,-1] - CR52*CR24/CR22
+        DR22 = A22[:,-1] - CR52*CR25/CR22
+        DR23 = - CR52*CR26/CR22
+        DR31 = A31[:,-1] - CR62*CR24/CR22
+        DR32 = A32[:,-1] - CR62*CR25/CR22
+        DR33 = A33 - CR62*CR26/CR22
+    
+        det_DR = (DR11*DR22*DR33 + DR12*DR23*DR31 + DR13*DR21*DR32 
+                 - DR13*DR22*DR31 - DR12*DR21*DR33 - DR11*DR23*DR32)
+    
+        # inverse of the matrix
+        inv_DR11 = DR22*DR33 - DR23*DR32
+        inv_DR12 = DR13*DR32 - DR12*DR33
+        inv_DR13 = DR12*DR23 - DR13*DR22
+        inv_DR21 = DR23*DR31 - DR21*DR33
+        inv_DR22 = DR11*DR33 - DR13*DR31
+        inv_DR23 = DR13*DR21 - DR11*DR23
+        inv_DR31 = DR32*DR21 - DR22*DR31
+        inv_DR32 = DR12*DR31 - DR32*DR11
+        inv_DR33 = DR11*DR22 - DR12*DR21
+ 
+
         total_num_iterations = 0
         # last maximum stepsize among v_x, v_y, and remodelling
         last_max_stepsize = 10*tolerance
         
         # This is useful to define outside the loop in case use_remodelling is False
         remodelling_step = 10*tolerance
-
-        dxdVx_ij = apply_numerical_derivative(v_x,'dx')
-        dydVx_ij = apply_numerical_derivative(v_x,'dy')
-        dxydVx_ij = apply_numerical_derivative(v_x,'dxy')
-        Vx_barx_ij = apply_numerical_derivative(v_x,'bar_x') 
-        Vx_bar_ij = apply_numerical_derivative(v_x,'bar') 
         
-        dxdVy_ij = apply_numerical_derivative(v_y,'dx')
-        dydVy_ij = apply_numerical_derivative(v_y,'dy')
-        dxydVy_ij = apply_numerical_derivative(v_y,'dxy')
-        Vy_bary_ij = apply_numerical_derivative(v_y,'bar_y') 
-        Vy_bar_ij = apply_numerical_derivative(v_y,'bar') 
+        apply_constant_boundary_condition(v_x)
+        apply_constant_boundary_condition(v_y)
+        apply_constant_boundary_condition(remodelling)
 
-        remodelling_bar = apply_numerical_derivative(remodelling, 'bar')
-        remodelling_x = apply_numerical_derivative(remodelling, 'dx')
-        remodelling_y = apply_numerical_derivative(remodelling, 'dy')
-
-        apply_full_boundary_conditions(previous_frame_w_border,v_x,v_y,remodelling,speed_alpha,dIdt_w_border,
-                                       dxdVx_ij,dydVy_ij, remodelling_alpha)
-   
         while total_num_iterations < max_iterations and last_max_stepsize> tolerance:
+
+            # apply_constant_boundary_condition(v_x)
+            # apply_constant_boundary_condition(v_y)
+            # apply_constant_boundary_condition(remodelling)
 
             dxdVx_ij = apply_numerical_derivative(v_x,'dx')
             dydVx_ij = apply_numerical_derivative(v_x,'dy')
             dxydVx_ij = apply_numerical_derivative(v_x,'dxy')
             Vx_barx_ij = apply_numerical_derivative(v_x,'bar_x') 
-            Vx_bar_ij = apply_numerical_derivative(v_x,'bar') 
+            Vx_bary_ij = apply_numerical_derivative(v_x,'bar_y') 
+            Vx_bar_ij = Vx_barx_ij + Vx_bary_ij 
             
             dxdVy_ij = apply_numerical_derivative(v_y,'dx')
             dydVy_ij = apply_numerical_derivative(v_y,'dy')
             dxydVy_ij = apply_numerical_derivative(v_y,'dxy')
+            Vy_barx_ij = apply_numerical_derivative(v_y,'bar_x') 
             Vy_bary_ij = apply_numerical_derivative(v_y,'bar_y') 
-            Vy_bar_ij = apply_numerical_derivative(v_y,'bar') 
+            Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
 #
-            remodelling_bar = apply_numerical_derivative(remodelling, 'bar')
+            remodelling_barx = apply_numerical_derivative(remodelling, 'bar_x')
+            remodelling_bary = apply_numerical_derivative(remodelling, 'bar_y')
+            remodelling_bar = remodelling_barx + remodelling_bary
             remodelling_x = apply_numerical_derivative(remodelling, 'dx')
             remodelling_y = apply_numerical_derivative(remodelling, 'dy')
 
@@ -897,29 +1043,143 @@ def variational_optical_flow_jit(movie,
                                      +previous_frame*dydVy_ij
                                      +remodelling_alpha*remodelling_bar)
      
-                # LHS matrix
-                A11 = (previous_frame*dIdxx -2*previous_frame**2 -4*speed_alpha)
-                A12 = previous_frame*dIdyx
-                A22 = previous_frame*dIdyy -2*previous_frame**2-4*speed_alpha
-                A31 = -dIdx
-                A32 = -dIdy
-                A33 = +(1+4*remodelling_alpha)
-                
-                # This is not the actual determinant, but the 2D top left sub-determinant
-                det_A = A11*A22 - A12*A12
+               
+                # v_x_new[2:-2,2:-2] = (inv_A11*RHS_x + inv_A12*RHS_y)[1:-1,1:-1]
+                # v_y_new[2:-2,2:-2] = (inv_A12*RHS_x + inv_A22*RHS_y)[1:-1,1:-1]
+                # remodelling_new[2:-2,2:-2] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)[1:-1,1:-1]
 
-                # inverse of the matrix
-                inv_A11 = A22/det_A
-                inv_A12 = -A12/det_A
-                inv_A22 = A11/det_A
-                inv_A31 = (A32*A12 - A22*A31)/(det_A*A33)
-                inv_A32 = (A12*A31 - A32*A11)/(det_A*A33)
-                inv_A33 = 1/A33
-                
-                v_x_new[:] = inv_A11*RHS_x + inv_A12*RHS_y
-                v_y_new[:] = inv_A12*RHS_x + inv_A22*RHS_y
-                remodelling_new[:] = inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling
+                v_x_new[1:-1,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y)
+                v_y_new[1:-1,1:-1] = (inv_A12*RHS_x + inv_A22*RHS_y)
+                remodelling_new[1:-1,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)
 
+                apply_constant_boundary_condition(v_x_new)
+                apply_constant_boundary_condition(v_y_new)
+                apply_constant_boundary_condition(remodelling_new)
+                # Top boundary
+                # RHS_x=(previous_frame[0,:]*(-dIdx_t[0,:]) -previous_frame[0,:]*
+                                        # (dIdx[0,:]*v_x[2,1:-1]+dIdx[0,:]*dydVy_ij[0,:])
+                                    # -previous_frame[0,:]**2*
+                                        # (v_x[2,1:-1]+dxydVy_ij[0,:])-speed_alpha*v_x[2,1:-1] - speed_alpha*Vx_bary_ij[0,:] )
+                                    
+                # RHS_y= (previous_frame[0,:]*(remodelling_y[0,:]-dIdy_t[0,:]) -previous_frame[0,:]*
+                            #   (2*dIdy[0,:]*dydVy_ij[0,:]+dIdx[0,:]*dydVx_ij[0,:]+dIdy[0,:]*v_x[2,1:-1]/2)
+                        # -previous_frame[0,:]**2*(Vy_bary_ij[-1,:]+dxydVx_ij[-1,:])-2*speed_alpha*v_y[2,1:-1] - speed_alpha*Vy_bary_ij[0,:])
+                                    
+                # RHS_remodelling = +(dIdt[0,:]+previous_frame[0,:]*v_x[2,1:-1]/2
+                                    #  +previous_frame[0,:]*dydVy_ij[0,:]
+                                    #  +2*remodelling_alpha*remodelling[2,1:-1] + remodelling_alpha*remodelling_bary[0,:])
+                # RHS_boundary = (-previous_frame[0,:]*(dIdt[0,:] - previous_frame[0,:]*v_x[2,1:-1]/2 
+                                                    #  + previous_frame[0,:]*dydVy_ij[0,:]) 
+                                                    #  - speed_alpha*v_x[2,1:-1]/2
+                                                    #  ) 
+                # RHS_x = RHS_x - CT41/CT11*RHS_boundary
+                # RHS_y = RHS_y - CT51/CT11*RHS_boundary
+                # RHS_remodelling = RHS_remodelling - CT61/CT11*RHS_boundary
+#  
+                # v_x_new[1,1:-1] = (inv_DT11*RHS_x + inv_DT12*RHS_y + inv_DT13*RHS_remodelling)/det_DT
+                # v_y_new[1,1:-1] = (inv_DT21*RHS_x + inv_DT22*RHS_y + inv_DT23*RHS_remodelling)/det_DT
+                # remodelling_new[1,1:-1] = (inv_DT31*RHS_x + inv_DT32*RHS_y + inv_DT33*RHS_remodelling)/det_DT
+                # 
+                # v_x_new[0,1:-1] = (RHS_boundary - CT14*v_x_new[1,1:-1] - CT15*v_y_new[1,1:-1] - CT16*remodelling_new[1,1:-1])/CT11
+                # 
+                # bottom boundary
+                # RHS_x=(previous_frame[-1,:]*(-dIdx_t[-1,:]) -previous_frame[-1,:]*
+                                        # (-dIdx[-1,:]*v_x[-3,1:-1]+dIdx[-1,:]*dydVy_ij[-1,:])
+                                    # -previous_frame[-1,:]**2*
+                                        # (v_x[-3,1:-1]+dxydVy_ij[-1,:])-speed_alpha*v_x[-3,1:-1] - speed_alpha*Vx_bary_ij[-1,:] )
+                                    
+                # RHS_y= (previous_frame[-1,:]*(remodelling_y[-1,:]-dIdy_t[-1,:]) -previous_frame[-1,:]*
+                            #   (2*dIdy[-1,:]*dydVy_ij[-1,:]+dIdx[-1,:]*dydVx_ij[-1,:]-dIdy[-1,:]*v_x[-3,1:-1]/2)
+                        # -previous_frame[-1,:]**2*(Vy_bary_ij[-1,:]+dxydVx_ij[-1,:])-2*speed_alpha*v_y[-3,1:-1] - speed_alpha*Vy_bary_ij[-1,:])
+                                    
+                # RHS_remodelling = +(dIdt[-1,:]-previous_frame[-1,:]*v_x[-3,1:-1]/2
+                                    #  +previous_frame[-1,:]*dydVy_ij[-1,:]
+                                    #  +2*remodelling_alpha*remodelling[-3,1:-1] + remodelling_alpha*remodelling_bary[-1,:])
+                # RHS_boundary = (-previous_frame[-1,:]*(dIdt[-1,:] + previous_frame[-1,:]*v_x[-3,1:-1]/2 
+                                                    #  + previous_frame[-1,:]*dydVy_ij[-1,:]) 
+                                                    #  + speed_alpha*v_x[-3,1:-1]/2
+                                                    #  ) 
+                # RHS_x = RHS_x - CB41/CB11*RHS_boundary
+                # RHS_y = RHS_y - CB51/CB11*RHS_boundary
+                # RHS_remodelling = RHS_remodelling - CB61/CB11*RHS_boundary
+#  
+                # v_x_new[-2,1:-1] = (inv_DB11*RHS_x + inv_DB12*RHS_y + inv_DB13*RHS_remodelling)/det_DB
+                # v_y_new[-2,1:-1] = (inv_DB21*RHS_x + inv_DB22*RHS_y + inv_DB23*RHS_remodelling)/det_DB
+                # remodelling_new[-2,1:-1] = (inv_DB31*RHS_x + inv_DB32*RHS_y + inv_DB33*RHS_remodelling)/det_DB
+                # 
+                # v_x_new[-1,1:-1] = (RHS_boundary - CB14*v_x_new[-2,1:-1] - CB15*v_y_new[-2,1:-1] - CB16*remodelling_new[-2,1:-1])/CB11
+
+                # Left boundary
+                # RHS_x = (previous_frame[:,0]*(remodelling_x[:,0]-dIdx_t[:,0]) -previous_frame[:,0]*
+                        #  (2*dIdx[:,0]*dxdVx_ij[:,0]+dIdy[:,0]*dxdVy_ij[:,0]+dIdx[:,0]*v_y[1:-1,2]/2)
+                        #  -previous_frame[:,0]**2*(Vx_barx_ij[:,0]+dxydVy_ij[:,0])-2*speed_alpha*v_x[1:-1,2] - speed_alpha*Vx_barx_ij[:,0])
+                                   
+                # RHS_y = (previous_frame[:,0]*(-dIdy_t[:,0]) -previous_frame[:,0]*
+                        #  (dIdy[:,0]*v_y[1:-1,2]+dIdy[:,0]*dxdVx_ij[:,0])
+                                    # -previous_frame[:,0]**2*
+                                        # (v_y[1:-1,2]+dxydVy_ij[:,0])-speed_alpha*v_y[1:-1,2] - speed_alpha*Vy_barx_ij[:,0] )
+                                    
+                # RHS_remodelling = +(dIdt[:,0] + previous_frame[:,0]*v_y[1:-1,2]/2
+                                    # +previous_frame[:,0]*dxdVx_ij[:,0]
+                                    #  +2*remodelling_alpha*remodelling[1:-1,2] + remodelling_alpha*remodelling_barx[:,0])
+
+                # RHS_boundary = (-previous_frame[:,0]*(dIdt[-1,:] - previous_frame[:,0]*v_y[1:-1,2]/2 
+                                                    #  + previous_frame[:,0]*dxdVx_ij[-1,:]) 
+                                                    #  - speed_alpha*v_y[1:-1,2]/2
+                                                    #  ) 
+                # RHS_x = RHS_x - CL42/CL22*RHS_boundary
+                # RHS_y = RHS_y - CL52/CL22*RHS_boundary
+                # RHS_remodelling = RHS_remodelling - CL62/CL22*RHS_boundary
+#  
+                # v_x_new[1:-1,1] = (inv_DL11*RHS_x + inv_DL12*RHS_y + inv_DL13*RHS_remodelling)/det_DL
+                # v_y_new[1:-1,1] = (inv_DL21*RHS_x + inv_DL22*RHS_y + inv_DL23*RHS_remodelling)/det_DL
+                # remodelling_new[1:-1,1] = (inv_DL31*RHS_x + inv_DL32*RHS_y + inv_DL33*RHS_remodelling)/det_DL
+                # 
+                # v_y_new[1:-1,0] = (RHS_boundary - CL24*v_x_new[1:-1,1] - CL25*v_y_new[1:-1,1] - CL26*remodelling_new[1:-1,1])/CL22
+
+                # Right boundary
+                # RHS_x = (previous_frame[:,-1]*(remodelling_x[:,-1]-dIdx_t[:,-1]) -previous_frame[:,-1]*
+                        #  (2*dIdx[:,-1]*dxdVx_ij[:,-1]+dIdy[:,-1]*dxdVy_ij[:,-1] - dIdx[:,-1]*v_y[1:-1,-3]/2)
+                        #  -previous_frame[:,-1]**2*(Vx_barx_ij[:,-1]+dxydVy_ij[:,-1])-2*speed_alpha*v_x[1:-1,-3] - speed_alpha*Vx_barx_ij[:,-1])
+                                   
+                # RHS_y = (previous_frame[:,-1]*(-dIdy_t[:,-1]) -previous_frame[:,-1]*
+                        #  (-dIdy[:,-1]*v_y[1:-1,-3]+dIdy[:,-1]*dxdVx_ij[:,-1])
+                                    # -previous_frame[:,-1]**2*
+                                        # (v_y[1:-1,-3]+dxydVy_ij[:,-1])-speed_alpha*v_y[1:-1,-3] - speed_alpha*Vy_barx_ij[:,-1] )
+                                    
+                # RHS_remodelling = +(dIdt[:,-1] - previous_frame[:,-1]*v_y[1:-1,-3]/2
+                                    # +previous_frame[:,-1]*dxdVx_ij[:,-1]
+                                    #  +2*remodelling_alpha*remodelling[1:-1,-3] + remodelling_alpha*remodelling_barx[:,-1])
+                # 
+                # RHS_boundary = (-previous_frame[:,-1]*(dIdt[-1,:] + previous_frame[:,-1]*v_y[1:-1,-3]/2 
+                                                    #  + previous_frame[:,-1]*dxdVx_ij[:,-1]) 
+                                                    #  + speed_alpha*v_y[1:-1,-3]/2
+                                                    #  ) 
+                # RHS_x = RHS_x - CR42/CR22*RHS_boundary
+                # RHS_y = RHS_y - CR52/CR22*RHS_boundary
+                # RHS_remodelling = RHS_remodelling - CR62/CR22*RHS_boundary
+                # 
+                # v_x_new[1:-1,-2] = (inv_DR11*RHS_x + inv_DR12*RHS_y + inv_DR13*RHS_remodelling)/det_DR
+                # v_y_new[1:-1,-2] = (inv_DR21*RHS_x + inv_DR22*RHS_y + inv_DR23*RHS_remodelling)/det_DR
+                # remodelling_new[1:-1,-2] = (inv_DR31*RHS_x + inv_DR32*RHS_y + inv_DR33*RHS_remodelling)/det_DR
+                # 
+                # v_y_new[1:-1,-1] = (RHS_boundary - CR24*v_x_new[1:-1,-2] - CR25*v_y_new[1:-1,-2] - CR26*remodelling_new[1:-1,-2])/CR22
+
+                v_x_new[0,0]   = (v_x_new[0,1]   + v_x_new[1,0]  )/2
+                v_x_new[-1,0]  = (v_x_new[-1,1]  + v_x_new[-2,0] )/2
+                v_x_new[0,-1]  = (v_x_new[0,-2]  + v_x_new[1,-1] )/2
+                v_x_new[-1,-1] = (v_x_new[-1,-2] + v_x_new[-2,-1])/2
+
+                v_y_new[0,0]   = (v_y_new[0,1]   + v_y_new[1,0]  )/2
+                v_y_new[-1,0]  = (v_y_new[-1,1]  + v_y_new[-2,0] )/2
+                v_y_new[0,-1]  = (v_y_new[0,-2]  + v_y_new[1,-1] )/2
+                v_y_new[-1,-1] = (v_y_new[-1,-2] + v_y_new[-2,-1])/2
+
+                remodelling_new[0,0]   = (remodelling_new[0,1]   + remodelling_new[1,0]  )/2
+                remodelling_new[-1,0]  = (remodelling_new[-1,1]  + remodelling_new[-2,0] )/2
+                remodelling_new[0,-1]  = (remodelling_new[0,-2]  + remodelling_new[1,-1] )/2
+                remodelling_new[-1,-1] = (remodelling_new[-1,-2] + remodelling_new[-2,-1])/2
+ 
             else:
                 RHS_x = (-previous_frame*dIdx_t -previous_frame*
                                     (2*dIdx*dxdVx_ij+dIdy*dxdVy_ij+dIdx*dydVy_ij)
@@ -946,20 +1206,19 @@ def variational_optical_flow_jit(movie,
                 v_x_new[:] = inv_A_11*RHS_x + inv_A_12*RHS_y
                 v_y_new[:] = inv_A_12*RHS_x + inv_A_22*RHS_y
                     
-
-            apply_full_boundary_conditions(previous_frame_w_border,v_x,v_y,remodelling,speed_alpha,dIdt_w_border,
-                                           dxdVx_ij,dydVy_ij, remodelling_alpha)
-            # relaxation_factor = 1.1
-            # v_x_new = (1-relaxation_factor)*v_x[1:-1,1:-1] + relaxation_factor*v_x_new
-            # v_y_new = (1-relaxation_factor)*v_y[1:-1,1:-1] + relaxation_factor*v_y_new
-            v_x_step = np.linalg.norm(v_x[1:-1,1:-1] - v_x_new)/ np.linalg.norm(v_x_new)
-            v_y_step = np.linalg.norm(v_y[1:-1,1:-1] - v_y_new)/ np.linalg.norm(v_y_new)
-            v_x[1:-1,1:-1] = v_x_new
-            v_y[1:-1,1:-1] = v_y_new
+            # apply_full_boundary_conditions(previous_frame_w_border,v_x,v_y,remodelling,speed_alpha,dIdt_w_border,
+                                        #    dxdVx_ij,dydVy_ij, remodelling_alpha)
+            relaxation_factor = 1.001
+            v_x_new = (1-relaxation_factor)*v_x + relaxation_factor*v_x_new
+            v_y_new = (1-relaxation_factor)*v_y + relaxation_factor*v_y_new
+            v_x_step = np.linalg.norm(v_x - v_x_new)/ np.linalg.norm(v_x_new)
+            v_y_step = np.linalg.norm(v_y - v_y_new)/ np.linalg.norm(v_y_new)
+            v_x[:] = v_x_new
+            v_y[:] = v_y_new
             if include_remodelling:
-                # remodelling_new = (1-relaxation_factor)*remodelling[1:-1,1:-1] + relaxation_factor*remodelling_new
-                remodelling_step = np.linalg.norm(remodelling[1:-1,1:-1] - remodelling_new)/ np.linalg.norm(remodelling_new)
-                remodelling[1:-1,1:-1] = remodelling_new
+                remodelling_new = (1-relaxation_factor)*remodelling + relaxation_factor*remodelling_new
+                # remodelling_step = np.linalg.norm(remodelling - remodelling_new)/ np.linalg.norm(remodelling_new)
+                remodelling[:] = remodelling_new
                 
             last_max_stepsize = max((v_x_step, v_y_step, remodelling_step))
 
@@ -981,25 +1240,27 @@ def variational_optical_flow_jit(movie,
     return all_v_x, all_v_y, all_speed, all_remodelling, total_num_iterations
 
 # @njit
-def apply_full_boundary_conditions(previous_frame_w_border,v_x,v_y,remodelling,speed_alpha,dIdt_w_border,
-                                   dxdVx_ij,dydVy_ij,remodelling_alpha):
-    apply_constant_boundary_condition(v_x)
-    apply_constant_boundary_condition(v_y)
-    apply_constant_boundary_condition(remodelling)
+# def apply_full_boundary_conditions(previous_frame,dIdt,dIdx_t,dIdy_t,dIdxx,dIdyx,dIdyy,dIdx,dIdy,v_x,v_y,remodelling,remodelling_y, speed_alpha,dIdt_w_border,
+                                #    dxdVx_ij,dydVy_ij,remodelling_alpha,dxydVy_ij,dxydVx_ij,dydVx_ij,dxdVy_ij,Vx_barx_ij, Vx_bary_ij, Vy_barx_ij, Vy_bary_ij,
+                                #    remodelling_barx, remodelling_bary):
+    # some of these these will be overwritten below
+
+
+    # First
 
     # # add an average for the corners - might do the trick!
-    left_corner_v_x   = (v_x[0,1]   + v_x[1,0] + v_x[1,1])/3
+    # left_corner_v_x   = (v_x[0,1]   + v_x[1,0] + v_x[1,1])/3
     # v_x[-1,0]  = (v_x[-1,1]  + v_x[-2,0])/2
     # v_x[0,-1]  = (v_x[0,-2]  + v_x[1,-1])/2
     # v_x[0,-1]  = (v_x[0,-2]  + v_x[1,-1])/2
 
-    left_corner_v_y   = (v_y[0,1]   + v_y[1,0] + v_y[1,1])/3
+    # left_corner_v_y   = (v_y[0,1]   + v_y[1,0] + v_y[1,1])/3
     # v_y[-1,0]  = (v_y[-1,1]  + v_y[-2,0])/2
     # v_y[0,-1]  = (v_y[0,-2]  + v_y[1,-1])/2
     # v_y[0,-1]  = (v_y[0,-2]  + v_y[1,-1])/2
     # v_y[-1,-1] = (v_y[-1,-2] + v_y[-2,-1])/2
 
-    left_corner_remodelling   = (remodelling[0,1] + remodelling[1,0] + remodelling[1,1] )/3
+    # left_corner_remodelling   = (remodelling[0,1] + remodelling[1,0] + remodelling[1,1] )/3
     # remodelling[-1,0]  = (remodelling[-1,1]  + remodelling[-2,0])/2
     # remodelling[0,-1]  = (remodelling[0,-2]  + remodelling[1,-1])/2
     # remodelling[0,-1]  = (remodelling[0,-2]  + remodelling[1,-1])/2
@@ -1070,285 +1331,285 @@ def apply_full_boundary_conditions(previous_frame_w_border,v_x,v_y,remodelling,s
     # left_corner_remodelling = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
  
     ## Top row, boundary I
-    dIdxx = (previous_frame_w_border[0,1:-1] -2* previous_frame_w_border[1,1:-1]+ previous_frame_w_border[2,1:-1])
-    dIdyy = (previous_frame_w_border[0,2:] -2* previous_frame_w_border[0,1:-1]+ previous_frame_w_border[0,:-2])
-    dIdyx = (previous_frame_w_border[2:,1]-previous_frame_w_border[:-2,1] - previous_frame_w_border[2:,0] +previous_frame_w_border[:-2,0] )/2
-    remodelling_x = remodelling[1,1:-1] - remodelling[0,1:-1]
-    remodelling_y = (remodelling[0,2:] - remodelling[0,:-2])/2
-    dIdx_t = dIdt_w_border[1,1:-1] - dIdt_w_border[0,1:-1]
-    dIdy_t = (dIdt_w_border[0,2:] - dIdt_w_border[0,:-2])/2
-    dxdVx_ij = v_x[1,1:-1] - v_x[0,1:-1]
-    dxdVy_ij = v_y[1,1:-1] - v_y[0,1:-1]
-    dydVy_ij = (v_y[0,2:] - v_y[0,:-2])/2
-    dydVx_ij = (v_x[0,2:] - v_x[0,:-2])/2
-    Vx_barx_ij = v_x[2,1:-1] -2*v_x[1,1:-1]
-    Vx_bary_ij = v_x[0,2:] +v_x[0,:-2]
-    Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
-    Vy_barx_ij = v_y[2,1:-1] -2*v_y[1,1:-1]
-    Vy_bary_ij = v_y[0,2:] +v_y[0,:-2]
-    Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
-    remodelling_barx_ij = remodelling[2,1:-1] -2*remodelling[1,1:-1]
-    remodelling_bary_ij = remodelling[0,2:] +remodelling[0,:-2]
-    remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
-    dxydVx_ij = (v_x[2:,1]-v_x[:-2,1] - v_x[2:,0] +v_x[:-2,0] )/2
-    dxydVy_ij = (v_y[2:,1]-v_y[:-2,1] - v_y[2:,0] +v_y[:-2,0] )/2
-    dIdy= (previous_frame_w_border[0,2:] - previous_frame_w_border[0,:-2])/2
-    dIdx= (previous_frame_w_border[1,1:-1] - previous_frame_w_border[0,1:-1])
-    RHS_x=(previous_frame_w_border[0,1:-1]*(remodelling[1,1:-1]-dIdx_t) -previous_frame_w_border[0,1:-1]*
-                            (dIdx*dydVy_ij+2*dIdx*v_x[1,1:-1]+dIdy*v_y[1,1:-1])
-                        -previous_frame_w_border[0,1:-1]**2*
-                            (Vx_barx_ij+dxydVy_ij)-speed_alpha*Vx_bar_ij)
-                        #
-    RHS_y= (previous_frame_w_border[0,1:-1]*(remodelling_y-dIdy_t) -previous_frame_w_border[0,1:-1]*
-                  (2*dIdy*dydVy_ij+dIdx*dydVx_ij+dIdy*v_x[1,1:-1])
-             -previous_frame_w_border[0,1:-1]**2*(Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
-                        #
-    RHS_remodelling = +(dIdt_w_border[0,1:-1]+previous_frame_w_border[0,1:-1]*v_x[1,1:-1]
-                         +previous_frame_w_border[0,1:-1]*dydVy_ij
-                         +remodelling_alpha*remodelling_bar)
+    # dIdxx = (previous_frame_w_border[0,1:-1] -2* previous_frame_w_border[1,1:-1]+ previous_frame_w_border[2,1:-1])
+    # dIdyy = (previous_frame_w_border[0,2:] -2* previous_frame_w_border[0,1:-1]+ previous_frame_w_border[0,:-2])
+    # dIdyx = (previous_frame_w_border[2:,1]-previous_frame_w_border[:-2,1] - previous_frame_w_border[2:,0] +previous_frame_w_border[:-2,0] )/2
+    # remodelling_x = remodelling[1,1:-1] - remodelling[0,1:-1]
+    # remodelling_y = (remodelling[0,2:] - remodelling[0,:-2])/2
+    # dIdx_t = dIdt_w_border[1,1:-1] - dIdt_w_border[0,1:-1]
+    # dIdy_t = (dIdt_w_border[0,2:] - dIdt_w_border[0,:-2])/2
+    # dxdVx_ij = v_x[1,1:-1] - v_x[0,1:-1]
+    # dxdVy_ij = v_y[1,1:-1] - v_y[0,1:-1]
+    # dydVy_ij = (v_y[0,2:] - v_y[0,:-2])/2
+    # dydVx_ij = (v_x[0,2:] - v_x[0,:-2])/2
+    # Vx_barx_ij = v_x[2,1:-1] -2*v_x[1,1:-1]
+    # Vx_bary_ij = v_x[0,2:] +v_x[0,:-2]
+    # Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
+    # Vy_barx_ij = v_y[2,1:-1] -2*v_y[1,1:-1]
+    # Vy_bary_ij = v_y[0,2:] +v_y[0,:-2]
+    # Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
+    # remodelling_barx_ij = remodelling[2,1:-1] -2*remodelling[1,1:-1]
+    # remodelling_bary_ij = remodelling[0,2:] +remodelling[0,:-2]
+    # remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
+    # dxydVx_ij = (v_x[2:,1]-v_x[:-2,1] - v_x[2:,0] +v_x[:-2,0] )/2
+    # dxydVy_ij = (v_y[2:,1]-v_y[:-2,1] - v_y[2:,0] +v_y[:-2,0] )/2
+    # dIdy= (previous_frame_w_border[0,2:] - previous_frame_w_border[0,:-2])/2
+    # dIdx= (previous_frame_w_border[1,1:-1] - previous_frame_w_border[0,1:-1])
+    # RHS_x=(previous_frame_w_border[0,1:-1]*(remodelling[1,1:-1]-dIdx_t) -previous_frame_w_border[0,1:-1]*
+    #                         (dIdx*dydVy_ij+2*dIdx*v_x[1,1:-1]+dIdy*v_y[1,1:-1])
+    #                     -previous_frame_w_border[0,1:-1]**2*
+    #                         (Vx_barx_ij+dxydVy_ij)-speed_alpha*Vx_bar_ij)
+    #                     #
+    # RHS_y= (previous_frame_w_border[0,1:-1]*(remodelling_y-dIdy_t) -previous_frame_w_border[0,1:-1]*
+    #               (2*dIdy*dydVy_ij+dIdx*dydVx_ij+dIdy*v_x[1,1:-1])
+    #          -previous_frame_w_border[0,1:-1]**2*(Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
+    #                     #
+    # RHS_remodelling = +(dIdt_w_border[0,1:-1]+previous_frame_w_border[0,1:-1]*v_x[1,1:-1]
+    #                      +previous_frame_w_border[0,1:-1]*dydVy_ij
+    #                      +remodelling_alpha*remodelling_bar)
     
-    # LHS matrix
-    A11 = (previous_frame_w_border[0,1:-1]*dIdxx +previous_frame_w_border[0,1:-1]**2 
-           -2*previous_frame_w_border[0,1:-1]*dIdx 
-           -1*speed_alpha)
-    A12 = previous_frame_w_border[0,1:-1]*dIdyx - previous_frame_w_border[0,1:-1]*dIdy
-    A13 = previous_frame_w_border[0,1:-1]
-    A22 = previous_frame_w_border[0,1:-1]*dIdyy -2*previous_frame_w_border[0,1:-1]**2-1*speed_alpha
-    A23 = 0
-    A31 = previous_frame_w_border[0,1:-1]-dIdx
-    A32 = -dIdy
-    A33 = +(1+1*remodelling_alpha)
+    # # LHS matrix
+    # A11 = (previous_frame_w_border[0,1:-1]*dIdxx +previous_frame_w_border[0,1:-1]**2 
+    #        -2*previous_frame_w_border[0,1:-1]*dIdx 
+    #        -1*speed_alpha)
+    # A12 = previous_frame_w_border[0,1:-1]*dIdyx - previous_frame_w_border[0,1:-1]*dIdy
+    # A13 = previous_frame_w_border[0,1:-1]
+    # A22 = previous_frame_w_border[0,1:-1]*dIdyy -2*previous_frame_w_border[0,1:-1]**2-1*speed_alpha
+    # A23 = 0
+    # A31 = previous_frame_w_border[0,1:-1]-dIdx
+    # A32 = -dIdy
+    # A33 = +(1+1*remodelling_alpha)
     
-    det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
-             - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
+    # det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
+    #          - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
 
-    # inverse of the matrix
-    inv_A11 = A22*A33 - A23*A32
-    inv_A12 = A13*A32 - A12*A33
-    inv_A13 = A12*A23 - A13*A22
-    inv_A21 = A23*A31 - A12*A33
-    inv_A22 = A11*A33 - A13*A31
-    inv_A23 = A13*A12 - A11*A23
-    inv_A31 = A32*A12 - A22*A31
-    inv_A32 = A12*A31 - A32*A11
-    inv_A33 = A11*A22 - A12*A12
-    v_x[0,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
-    v_y[0,1:-1] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
-    remodelling[0,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
+    # # inverse of the matrix
+    # inv_A11 = A22*A33 - A23*A32
+    # inv_A12 = A13*A32 - A12*A33
+    # inv_A13 = A12*A23 - A13*A22
+    # inv_A21 = A23*A31 - A12*A33
+    # inv_A22 = A11*A33 - A13*A31
+    # inv_A23 = A13*A12 - A11*A23
+    # inv_A31 = A32*A12 - A22*A31
+    # inv_A32 = A12*A31 - A32*A11
+    # inv_A33 = A11*A22 - A12*A12
+    # v_x[0,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
+    # v_y[0,1:-1] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
+    # remodelling[0,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
     
-    # Bottom row, boundary II
-    ## Bottom row, boundary I
-    dIdxx = (previous_frame_w_border[-1,1:-1] -2* previous_frame_w_border[-2,1:-1]+ previous_frame_w_border[-3,1:-1])
-    dIdyy = (previous_frame_w_border[-1,2:] -2* previous_frame_w_border[-1,1:-1]+ previous_frame_w_border[-1,:-2])
-    dIdyx = (previous_frame_w_border[-1,2:]-previous_frame_w_border[-1,:-2] - previous_frame_w_border[-2,2:] +previous_frame_w_border[-2,:-2] )/2
-    remodelling_x = remodelling[-1,1:-1] - remodelling[-2,1:-1]
-    remodelling_y = (remodelling[-1,2:] - remodelling[-1,:-2])/2
-    dIdx_t = dIdt_w_border[-1,1:-1] - dIdt_w_border[-2,1:-1]
-    dIdy_t = (dIdt_w_border[-1,2:] - dIdt_w_border[-1,:-2])/2
-    dydVx_ij = (v_x[-1,2:] - v_x[-1,:-2])/2
-    dxdVy_ij = v_y[-1,1:-1] - v_y[-2,1:-1]
-    dydVy_ij = (v_y[-1,2:] - v_y[-1,:-2])/2
-    Vx_barx_ij = v_x[-3,1:-1] -2*v_x[-2,1:-1]
-    Vx_bary_ij = v_x[-1,2:] +v_x[-1,:-2]
-    Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
-    Vy_barx_ij = v_y[-3,1:-1] -2*v_y[-2,1:-1]
-    Vy_bary_ij = v_y[-1,2:] +v_y[-1,:-2]
-    Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
-    remodelling_barx_ij = remodelling[-3,1:-1] -2*remodelling[-2,1:-1]
-    remodelling_bary_ij = remodelling[-1,2:] +remodelling[-1,:-2]
-    remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
-    dxydVx_ij = (v_x[-1,2:]-v_x[-1,:-2] - v_x[-2,2:] +v_x[-2,:-2] )/2
-    dxydVy_ij = (v_y[-1,2:]-v_y[-1,:-2] - v_y[-2,2:] +v_y[-2,:-2] )/2
-    dIdy = (previous_frame_w_border[-1,2:] - previous_frame_w_border[-1,:-2])/2
-    dIdx = (previous_frame_w_border[-1,1:-1] - previous_frame_w_border[-2,1:-1])
+    # # Bottom row, boundary II
+    # ## Bottom row, boundary I
+    # dIdxx = (previous_frame_w_border[-1,1:-1] -2* previous_frame_w_border[-2,1:-1]+ previous_frame_w_border[-3,1:-1])
+    # dIdyy = (previous_frame_w_border[-1,2:] -2* previous_frame_w_border[-1,1:-1]+ previous_frame_w_border[-1,:-2])
+    # dIdyx = (previous_frame_w_border[-1,2:]-previous_frame_w_border[-1,:-2] - previous_frame_w_border[-2,2:] +previous_frame_w_border[-2,:-2] )/2
+    # remodelling_x = remodelling[-1,1:-1] - remodelling[-2,1:-1]
+    # remodelling_y = (remodelling[-1,2:] - remodelling[-1,:-2])/2
+    # dIdx_t = dIdt_w_border[-1,1:-1] - dIdt_w_border[-2,1:-1]
+    # dIdy_t = (dIdt_w_border[-1,2:] - dIdt_w_border[-1,:-2])/2
+    # dydVx_ij = (v_x[-1,2:] - v_x[-1,:-2])/2
+    # dxdVy_ij = v_y[-1,1:-1] - v_y[-2,1:-1]
+    # dydVy_ij = (v_y[-1,2:] - v_y[-1,:-2])/2
+    # Vx_barx_ij = v_x[-3,1:-1] -2*v_x[-2,1:-1]
+    # Vx_bary_ij = v_x[-1,2:] +v_x[-1,:-2]
+    # Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
+    # Vy_barx_ij = v_y[-3,1:-1] -2*v_y[-2,1:-1]
+    # Vy_bary_ij = v_y[-1,2:] +v_y[-1,:-2]
+    # Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
+    # remodelling_barx_ij = remodelling[-3,1:-1] -2*remodelling[-2,1:-1]
+    # remodelling_bary_ij = remodelling[-1,2:] +remodelling[-1,:-2]
+    # remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
+    # dxydVx_ij = (v_x[-1,2:]-v_x[-1,:-2] - v_x[-2,2:] +v_x[-2,:-2] )/2
+    # dxydVy_ij = (v_y[-1,2:]-v_y[-1,:-2] - v_y[-2,2:] +v_y[-2,:-2] )/2
+    # dIdy = (previous_frame_w_border[-1,2:] - previous_frame_w_border[-1,:-2])/2
+    # dIdx = (previous_frame_w_border[-1,1:-1] - previous_frame_w_border[-2,1:-1])
 
-    RHS_x = (-previous_frame_w_border[-1,1:-1]*(+remodelling[-2,1:-1]+dIdx_t 
-                            -2*dIdx*v_x[-2,1:-1]-dIdy*v_y[-2,1:-1]+dIdx*dydVy_ij
-                        +previous_frame_w_border[-1,1:-1]*
-                            (Vx_barx_ij+dxydVy_ij))-speed_alpha*Vx_bar_ij)
-                        #
-    RHS_y= (-previous_frame_w_border[-1,1:-1]*(-remodelling_y+dIdy_t 
-                 + 2*dIdy*dydVy_ij + dIdx*dydVx_ij - dIdy*v_x[-2,1:-1]
-             +previous_frame_w_border[-1,1:-1]*(Vy_bary_ij + dxydVx_ij))-speed_alpha*Vy_bar_ij)
-                        #
-    RHS_remodelling = +(dIdt_w_border[-1,1:-1]-previous_frame_w_border[-1,1:-1]*v_x[-2,1:-1]
-                         +previous_frame_w_border[-1,1:-1]*dydVy_ij
-                         +remodelling_alpha*remodelling_bar)
+    # RHS_x = (-previous_frame_w_border[-1,1:-1]*(+remodelling[-2,1:-1]+dIdx_t 
+    #                         -2*dIdx*v_x[-2,1:-1]-dIdy*v_y[-2,1:-1]+dIdx*dydVy_ij
+    #                     +previous_frame_w_border[-1,1:-1]*
+    #                         (Vx_barx_ij+dxydVy_ij))-speed_alpha*Vx_bar_ij)
+    #                     #
+    # RHS_y= (-previous_frame_w_border[-1,1:-1]*(-remodelling_y+dIdy_t 
+    #              + 2*dIdy*dydVy_ij + dIdx*dydVx_ij - dIdy*v_x[-2,1:-1]
+    #          +previous_frame_w_border[-1,1:-1]*(Vy_bary_ij + dxydVx_ij))-speed_alpha*Vy_bar_ij)
+    #                     #
+    # RHS_remodelling = +(dIdt_w_border[-1,1:-1]-previous_frame_w_border[-1,1:-1]*v_x[-2,1:-1]
+    #                      +previous_frame_w_border[-1,1:-1]*dydVy_ij
+    #                      +remodelling_alpha*remodelling_bar)
     
-    A11 = (previous_frame_w_border[-1,1:-1]*dIdxx +previous_frame_w_border[-1,1:-1]**2 
-           +2*previous_frame_w_border[-1,1:-1]*dIdx 
-           -1*speed_alpha)
-    A12 = previous_frame_w_border[-1,1:-1]*dIdyx + previous_frame_w_border[-1,1:-1]*dIdy
-    A13 = -previous_frame_w_border[-1,1:-1]
-    A21 = A12
-    A22 = previous_frame_w_border[-1,1:-1]*dIdyy -2*previous_frame_w_border[-1,1:-1]**2-speed_alpha
-    A23 = 0
-    A31 = -previous_frame_w_border[-1,1:-1]-dIdx
-    A32 = -dIdy
-    A33 = +(1+1*remodelling_alpha)
+    # A11 = (previous_frame_w_border[-1,1:-1]*dIdxx +previous_frame_w_border[-1,1:-1]**2 
+    #        +2*previous_frame_w_border[-1,1:-1]*dIdx 
+    #        -1*speed_alpha)
+    # A12 = previous_frame_w_border[-1,1:-1]*dIdyx + previous_frame_w_border[-1,1:-1]*dIdy
+    # A13 = -previous_frame_w_border[-1,1:-1]
+    # A21 = A12
+    # A22 = previous_frame_w_border[-1,1:-1]*dIdyy -2*previous_frame_w_border[-1,1:-1]**2-speed_alpha
+    # A23 = 0
+    # A31 = -previous_frame_w_border[-1,1:-1]-dIdx
+    # A32 = -dIdy
+    # A33 = +(1+1*remodelling_alpha)
     
-    det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
-             - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
+    # det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
+    #          - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
 
-    # inverse of the matrix
-    inv_A11 = A22*A33 - A23*A32
-    inv_A12 = A13*A32 - A12*A33
-    inv_A13 = A12*A23 - A13*A22
-    inv_A21 = A23*A31 - A12*A33
-    inv_A22 = A11*A33 - A13*A31
-    inv_A23 = A13*A12 - A11*A23
-    inv_A31 = A32*A12 - A22*A31
-    inv_A32 = A12*A31 - A32*A11
-    inv_A33 = A11*A22 - A12*A12
-    v_x[-1,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
-    v_y[-1,1:-1] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
-    remodelling[-1,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
+    # # inverse of the matrix
+    # inv_A11 = A22*A33 - A23*A32
+    # inv_A12 = A13*A32 - A12*A33
+    # inv_A13 = A12*A23 - A13*A22
+    # inv_A21 = A23*A31 - A12*A33
+    # inv_A22 = A11*A33 - A13*A31
+    # inv_A23 = A13*A12 - A11*A23
+    # inv_A31 = A32*A12 - A22*A31
+    # inv_A32 = A12*A31 - A32*A11
+    # inv_A33 = A11*A22 - A12*A12
+    # v_x[-1,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
+    # v_y[-1,1:-1] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
+    # remodelling[-1,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
  
-    # Left column, left boundary 
-    dIdxx = (previous_frame_w_border[2:,0] -2* previous_frame_w_border[1:-1,0]+ previous_frame_w_border[:-2,0])
-    dIdyy = (previous_frame_w_border[1:-1,0] -2* previous_frame_w_border[1:-1,1]+ previous_frame_w_border[1:-1,2])
-    dIdyx = (previous_frame_w_border[2:,1]-previous_frame_w_border[:-2,1] - previous_frame_w_border[2:,0] +previous_frame_w_border[:-2,0] )/2
-    remodelling_x = (remodelling[2:,0] - remodelling[:-2,0])/2
-    remodelling_y = (remodelling[1:-1,1] - remodelling[1:-1,0])
-    dIdx_t = (dIdt_w_border[2:,0] - dIdt_w_border[:-2,0])/2
-    dIdy_t = (dIdt_w_border[1:-1,1] - dIdt_w_border[1:-1,0])
-    dxdVx_ij = (v_x[2:,0] - v_x[:-2,0])/2
-    dxdVy_ij = (v_y[2:,0] - v_y[:-2,0])/2
-    dydVy_ij = (v_y[1:-1,1] - v_y[1:-1,0])
-    dydVx_ij = (v_x[1:-1,1] - v_x[1:-1,0])
-    Vx_barx_ij = v_x[2:,0] +v_x[:-2,0]
-    Vx_bary_ij = v_x[1:-1,2] -2*v_x[1:-1,1]
-    Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
-    Vy_barx_ij = v_y[2:,0] +v_y[:-2,0]
-    Vy_bary_ij = v_y[1:-1,2] -2*v_y[1:-1,1]
-    Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
-    remodelling_barx_ij = remodelling[2:,0] +remodelling[:-2,0]
-    remodelling_bary_ij = remodelling[1:-1,2] -2*remodelling[1:-1,1]
-    remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
-    dxydVx_ij = (v_x[2:,1]-v_x[:-2,1] - v_x[2:,0] + v_x[:-2,0] )/2
-    dxydVy_ij = (v_y[2:,1]-v_y[:-2,1] - v_y[2:,0] + v_y[:-2,0] )/2
-    dIdy= (previous_frame_w_border[1:-1,1] - previous_frame_w_border[1:-1,0])
-    dIdx= (previous_frame_w_border[2:,0] - previous_frame_w_border[:-2,0])/2
-                       #
-    RHS_x= (previous_frame_w_border[1:-1,0]*(remodelling_x-dIdx_t) -previous_frame_w_border[1:-1,0]*
-                  (2*dIdx*dxdVx_ij+dIdy*dxdVy_ij+dIdx*v_y[1:-1,1])
-             -previous_frame_w_border[1:-1,0]**2*(Vx_barx_ij+dxydVy_ij)-speed_alpha*Vx_bar_ij)
+    # # Left column, left boundary 
+    # dIdxx = (previous_frame_w_border[2:,0] -2* previous_frame_w_border[1:-1,0]+ previous_frame_w_border[:-2,0])
+    # dIdyy = (previous_frame_w_border[1:-1,0] -2* previous_frame_w_border[1:-1,1]+ previous_frame_w_border[1:-1,2])
+    # dIdyx = (previous_frame_w_border[2:,1]-previous_frame_w_border[:-2,1] - previous_frame_w_border[2:,0] +previous_frame_w_border[:-2,0] )/2
+    # remodelling_x = (remodelling[2:,0] - remodelling[:-2,0])/2
+    # remodelling_y = (remodelling[1:-1,1] - remodelling[1:-1,0])
+    # dIdx_t = (dIdt_w_border[2:,0] - dIdt_w_border[:-2,0])/2
+    # dIdy_t = (dIdt_w_border[1:-1,1] - dIdt_w_border[1:-1,0])
+    # dxdVx_ij = (v_x[2:,0] - v_x[:-2,0])/2
+    # dxdVy_ij = (v_y[2:,0] - v_y[:-2,0])/2
+    # dydVy_ij = (v_y[1:-1,1] - v_y[1:-1,0])
+    # dydVx_ij = (v_x[1:-1,1] - v_x[1:-1,0])
+    # Vx_barx_ij = v_x[2:,0] +v_x[:-2,0]
+    # Vx_bary_ij = v_x[1:-1,2] -2*v_x[1:-1,1]
+    # Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
+    # Vy_barx_ij = v_y[2:,0] +v_y[:-2,0]
+    # Vy_bary_ij = v_y[1:-1,2] -2*v_y[1:-1,1]
+    # Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
+    # remodelling_barx_ij = remodelling[2:,0] +remodelling[:-2,0]
+    # remodelling_bary_ij = remodelling[1:-1,2] -2*remodelling[1:-1,1]
+    # remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
+    # dxydVx_ij = (v_x[2:,1]-v_x[:-2,1] - v_x[2:,0] + v_x[:-2,0] )/2
+    # dxydVy_ij = (v_y[2:,1]-v_y[:-2,1] - v_y[2:,0] + v_y[:-2,0] )/2
+    # dIdy= (previous_frame_w_border[1:-1,1] - previous_frame_w_border[1:-1,0])
+    # dIdx= (previous_frame_w_border[2:,0] - previous_frame_w_border[:-2,0])/2
+    #                    #
+    # RHS_x= (previous_frame_w_border[1:-1,0]*(remodelling_x-dIdx_t) -previous_frame_w_border[1:-1,0]*
+    #               (2*dIdx*dxdVx_ij+dIdy*dxdVy_ij+dIdx*v_y[1:-1,1])
+    #          -previous_frame_w_border[1:-1,0]**2*(Vx_barx_ij+dxydVy_ij)-speed_alpha*Vx_bar_ij)
 
-    RHS_y=(previous_frame_w_border[1:-1,0]*(remodelling[1:-1,1]-dIdy_t) -previous_frame_w_border[1:-1,0]*
-                            (dIdy*dxdVx_ij+2*dIdy*v_y[1:-1,1]+dIdx*v_x[1:-1,1])
-                        -previous_frame_w_border[1:-1,0]**2*
-                            (Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
-                        #
-    RHS_remodelling = +(dIdt_w_border[1:-1,0]+previous_frame_w_border[1:-1,0]*v_y[1:-1,1]
-                         +previous_frame_w_border[1:-1,0]*dxdVx_ij
-                         +remodelling_alpha*remodelling_bar)
+    # RHS_y=(previous_frame_w_border[1:-1,0]*(remodelling[1:-1,1]-dIdy_t) -previous_frame_w_border[1:-1,0]*
+    #                         (dIdy*dxdVx_ij+2*dIdy*v_y[1:-1,1]+dIdx*v_x[1:-1,1])
+    #                     -previous_frame_w_border[1:-1,0]**2*
+    #                         (Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
+    #                     #
+    # RHS_remodelling = +(dIdt_w_border[1:-1,0]+previous_frame_w_border[1:-1,0]*v_y[1:-1,1]
+    #                      +previous_frame_w_border[1:-1,0]*dxdVx_ij
+    #                      +remodelling_alpha*remodelling_bar)
     
-    # LHS matrix
-    A11 = previous_frame_w_border[1:-1,0]*dIdxx -2*previous_frame_w_border[1:-1,0]**2-1*speed_alpha
-    A12 = previous_frame_w_border[1:-1,0]*dIdyx - previous_frame_w_border[1:-1,0]*dIdx
-    A13 = 0
-    A21 = A12
-    A22 = (previous_frame_w_border[1:-1,0]*dIdyy + previous_frame_w_border[1:-1,0]**2 
-           -2*previous_frame_w_border[1:-1,0]*dIdy 
-           -1*speed_alpha)
-    A23 = previous_frame_w_border[1:-1,0]
-    A31 = -dIdx
-    A32 = previous_frame_w_border[1:-1,0]-dIdy
-    A33 = +(1+1*remodelling_alpha)
+    # # LHS matrix
+    # A11 = previous_frame_w_border[1:-1,0]*dIdxx -2*previous_frame_w_border[1:-1,0]**2-1*speed_alpha
+    # A12 = previous_frame_w_border[1:-1,0]*dIdyx - previous_frame_w_border[1:-1,0]*dIdx
+    # A13 = 0
+    # A21 = A12
+    # A22 = (previous_frame_w_border[1:-1,0]*dIdyy + previous_frame_w_border[1:-1,0]**2 
+    #        -2*previous_frame_w_border[1:-1,0]*dIdy 
+    #        -1*speed_alpha)
+    # A23 = previous_frame_w_border[1:-1,0]
+    # A31 = -dIdx
+    # A32 = previous_frame_w_border[1:-1,0]-dIdy
+    # A33 = +(1+1*remodelling_alpha)
     
-    det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
-             - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
+    # det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
+    #          - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
 
-    # inverse of the matrix
-    inv_A11 = A22*A33 - A23*A32
-    inv_A12 = A13*A32 - A12*A33
-    inv_A13 = A12*A23 - A13*A22
-    inv_A21 = A23*A31 - A12*A33
-    inv_A22 = A11*A33 - A13*A31
-    inv_A23 = A13*A12 - A11*A23
-    inv_A31 = A32*A12 - A22*A31
-    inv_A32 = A12*A31 - A32*A11
-    inv_A33 = A11*A22 - A12*A12
-    v_x[1:-1,0] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
-    v_y[1:-1,0] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
-    remodelling[1:-1,0] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
+    # # inverse of the matrix
+    # inv_A11 = A22*A33 - A23*A32
+    # inv_A12 = A13*A32 - A12*A33
+    # inv_A13 = A12*A23 - A13*A22
+    # inv_A21 = A23*A31 - A12*A33
+    # inv_A22 = A11*A33 - A13*A31
+    # inv_A23 = A13*A12 - A11*A23
+    # inv_A31 = A32*A12 - A22*A31
+    # inv_A32 = A12*A31 - A32*A11
+    # inv_A33 = A11*A22 - A12*A12
+    # v_x[1:-1,0] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
+    # v_y[1:-1,0] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
+    # remodelling[1:-1,0] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
  
-    # right column, right boundary 
-    dIdxx = (previous_frame_w_border[2:,-1] -2* previous_frame_w_border[1:-1,-1]+ previous_frame_w_border[:-2,-1])
-    dIdyy = (previous_frame_w_border[1:-1,-1] -2* previous_frame_w_border[1:-1,-2]+ previous_frame_w_border[1:-1,-3])
-    dIdyx = (previous_frame_w_border[2:,-1]-previous_frame_w_border[:-2,-1] - previous_frame_w_border[2:,-2] +previous_frame_w_border[:-2,-2] )/2
-    remodelling_x = (remodelling[2:,0] - remodelling[:-2,0])/2
-    remodelling_y = (remodelling[1:-1,-1] - remodelling[1:-1,-2])
-    dIdx_t = (dIdt_w_border[2:,-1] - dIdt_w_border[:-2,-1])/2
-    dIdy_t = (dIdt_w_border[1:-1,-1] - dIdt_w_border[1:-1,-2])
-    dxdVx_ij = (v_x[2:,-1] - v_x[:-2,-1])/2
-    dxdVy_ij = (v_y[2:,-1] - v_y[:-2,-1])/2
-    dydVy_ij = (v_y[1:-1,-1] - v_y[1:-1,-2])
-    dydVx_ij = (v_x[1:-1,-1] - v_x[1:-1,-2])
-    Vx_barx_ij = v_x[2:,-1] +v_x[:-2,-1]
-    Vx_bary_ij = v_x[1:-1,-3] -2*v_x[1:-1,-2]
-    Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
-    Vy_barx_ij = v_y[2:,-1] +v_y[:-2,-1]
-    Vy_bary_ij = v_y[1:-1,-3] -2*v_y[1:-1,-2]
-    Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
-    remodelling_barx_ij = remodelling[2:,-1] +remodelling[:-2,-1]
-    remodelling_bary_ij = remodelling[1:-1,-3] -2*remodelling[1:-1,-2]
-    remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
-    dxydVx_ij = (v_x[2:,-1]-v_x[:-2,-1] - v_x[2:,-2] + v_x[:-2,-2] )/2
-    dxydVy_ij = (v_y[2:,-1]-v_y[:-2,-1] - v_y[2:,-2] + v_y[:-2,-2] )/2
-    dIdy= (previous_frame_w_border[1:-1,-1] - previous_frame_w_border[1:-1,-2])
-    dIdx= (previous_frame_w_border[2:,-1] - previous_frame_w_border[:-2,-1])/2
-                       #
-    RHS_x= (previous_frame_w_border[1:-1,-1]*(remodelling_x-dIdx_t) -previous_frame_w_border[1:-1,-1]*
-                  (2*dIdx*dxdVx_ij + dIdy*dxdVy_ij - dIdx*v_y[1:-1,-2])
-             -previous_frame_w_border[1:-1,-1]**2*(Vx_barx_ij+dxydVy_ij)-speed_alpha*Vx_bar_ij)
+    # # right column, right boundary 
+    # dIdxx = (previous_frame_w_border[2:,-1] -2* previous_frame_w_border[1:-1,-1]+ previous_frame_w_border[:-2,-1])
+    # dIdyy = (previous_frame_w_border[1:-1,-1] -2* previous_frame_w_border[1:-1,-2]+ previous_frame_w_border[1:-1,-3])
+    # dIdyx = (previous_frame_w_border[2:,-1]-previous_frame_w_border[:-2,-1] - previous_frame_w_border[2:,-2] +previous_frame_w_border[:-2,-2] )/2
+    # remodelling_x = (remodelling[2:,0] - remodelling[:-2,0])/2
+    # remodelling_y = (remodelling[1:-1,-1] - remodelling[1:-1,-2])
+    # dIdx_t = (dIdt_w_border[2:,-1] - dIdt_w_border[:-2,-1])/2
+    # dIdy_t = (dIdt_w_border[1:-1,-1] - dIdt_w_border[1:-1,-2])
+    # dxdVx_ij = (v_x[2:,-1] - v_x[:-2,-1])/2
+    # dxdVy_ij = (v_y[2:,-1] - v_y[:-2,-1])/2
+    # dydVy_ij = (v_y[1:-1,-1] - v_y[1:-1,-2])
+    # dydVx_ij = (v_x[1:-1,-1] - v_x[1:-1,-2])
+    # Vx_barx_ij = v_x[2:,-1] +v_x[:-2,-1]
+    # Vx_bary_ij = v_x[1:-1,-3] -2*v_x[1:-1,-2]
+    # Vx_bar_ij = Vx_barx_ij + Vx_bary_ij
+    # Vy_barx_ij = v_y[2:,-1] +v_y[:-2,-1]
+    # Vy_bary_ij = v_y[1:-1,-3] -2*v_y[1:-1,-2]
+    # Vy_bar_ij = Vy_barx_ij + Vy_bary_ij
+    # remodelling_barx_ij = remodelling[2:,-1] +remodelling[:-2,-1]
+    # remodelling_bary_ij = remodelling[1:-1,-3] -2*remodelling[1:-1,-2]
+    # remodelling_bar = remodelling_barx_ij + remodelling_bary_ij
+    # dxydVx_ij = (v_x[2:,-1]-v_x[:-2,-1] - v_x[2:,-2] + v_x[:-2,-2] )/2
+    # dxydVy_ij = (v_y[2:,-1]-v_y[:-2,-1] - v_y[2:,-2] + v_y[:-2,-2] )/2
+    # dIdy= (previous_frame_w_border[1:-1,-1] - previous_frame_w_border[1:-1,-2])
+    # dIdx= (previous_frame_w_border[2:,-1] - previous_frame_w_border[:-2,-1])/2
+    #                    #
+    # RHS_x= (previous_frame_w_border[1:-1,-1]*(remodelling_x-dIdx_t) -previous_frame_w_border[1:-1,-1]*
+    #               (2*dIdx*dxdVx_ij + dIdy*dxdVy_ij - dIdx*v_y[1:-1,-2])
+    #          -previous_frame_w_border[1:-1,-1]**2*(Vx_barx_ij+dxydVy_ij)-speed_alpha*Vx_bar_ij)
 
-    RHS_y=(previous_frame_w_border[1:-1,-1]*(-remodelling[1:-1,-2]-dIdy_t) -previous_frame_w_border[1:-1,-1]*
-                            (dIdy*dxdVx_ij - 2*dIdy*v_y[1:-1,-2] - dIdx*v_x[1:-1,-2])
-                        -previous_frame_w_border[1:-1,0]**2*
-                            (Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
-                        #
-    RHS_remodelling = +(dIdt_w_border[1:-1,-1]-previous_frame_w_border[1:-1,-1]*v_y[1:-1,-2]
-                         +previous_frame_w_border[1:-1,-1]*dxdVx_ij
-                         +remodelling_alpha*remodelling_bar)
+    # RHS_y=(previous_frame_w_border[1:-1,-1]*(-remodelling[1:-1,-2]-dIdy_t) -previous_frame_w_border[1:-1,-1]*
+    #                         (dIdy*dxdVx_ij - 2*dIdy*v_y[1:-1,-2] - dIdx*v_x[1:-1,-2])
+    #                     -previous_frame_w_border[1:-1,0]**2*
+    #                         (Vy_bary_ij+dxydVx_ij)-speed_alpha*Vy_bar_ij)
+    #                     #
+    # RHS_remodelling = +(dIdt_w_border[1:-1,-1]-previous_frame_w_border[1:-1,-1]*v_y[1:-1,-2]
+    #                      +previous_frame_w_border[1:-1,-1]*dxdVx_ij
+    #                      +remodelling_alpha*remodelling_bar)
     
-    # LHS matrix
-    A11 = previous_frame_w_border[1:-1,-1]*dIdxx -2*previous_frame_w_border[1:-1,-1]**2-1*speed_alpha
-    A12 = previous_frame_w_border[1:-1,-1]*dIdyx + previous_frame_w_border[1:-1,-1]*dIdx
-    A13 = 0
-    A21 = A12
-    A22 = (previous_frame_w_border[1:-1,-1]*dIdyy + previous_frame_w_border[1:-1,0]**2 
-           +2*previous_frame_w_border[1:-1,-1]*dIdy 
-           -1*speed_alpha)
-    A23 = -previous_frame_w_border[1:-1,-1]
-    A31 = -dIdx
-    A32 = -previous_frame_w_border[1:-1,-1]-dIdy
-    A33 = +(1+1*remodelling_alpha)
+    # # LHS matrix
+    # A11 = previous_frame_w_border[1:-1,-1]*dIdxx -2*previous_frame_w_border[1:-1,-1]**2-1*speed_alpha
+    # A12 = previous_frame_w_border[1:-1,-1]*dIdyx + previous_frame_w_border[1:-1,-1]*dIdx
+    # A13 = 0
+    # A21 = A12
+    # A22 = (previous_frame_w_border[1:-1,-1]*dIdyy + previous_frame_w_border[1:-1,0]**2 
+    #        +2*previous_frame_w_border[1:-1,-1]*dIdy 
+    #        -1*speed_alpha)
+    # A23 = -previous_frame_w_border[1:-1,-1]
+    # A31 = -dIdx
+    # A32 = -previous_frame_w_border[1:-1,-1]-dIdy
+    # A33 = +(1+1*remodelling_alpha)
     
-    det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
-             - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
+    # det_A = (A11*A22*A33 + A12*A23*A31 + A13*A12*A32 
+    #          - A13*A22*A31 - A12*A12*A33 - A11*A23*A32)
 
-    # inverse of the matrix
-    inv_A11 = A22*A33 - A23*A32
-    inv_A12 = A13*A32 - A12*A33
-    inv_A13 = A12*A23 - A13*A22
-    inv_A21 = A23*A31 - A12*A33
-    inv_A22 = A11*A33 - A13*A31
-    inv_A23 = A13*A12 - A11*A23
-    inv_A31 = A32*A12 - A22*A31
-    inv_A32 = A12*A31 - A32*A11
-    inv_A33 = A11*A22 - A12*A12
-    v_x[1:-1,-1] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
-    v_y[1:-1,-1] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
-    remodelling[1:-1,-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
+    # # inverse of the matrix
+    # inv_A11 = A22*A33 - A23*A32
+    # inv_A12 = A13*A32 - A12*A33
+    # inv_A13 = A12*A23 - A13*A22
+    # inv_A21 = A23*A31 - A12*A33
+    # inv_A22 = A11*A33 - A13*A31
+    # inv_A23 = A13*A12 - A11*A23
+    # inv_A31 = A32*A12 - A22*A31
+    # inv_A32 = A12*A31 - A32*A11
+    # inv_A33 = A11*A22 - A12*A12
+    # v_x[1:-1,-1] = (inv_A11*RHS_x + inv_A12*RHS_y + inv_A13*RHS_remodelling)/det_A
+    # v_y[1:-1,-1] = (inv_A21*RHS_x + inv_A22*RHS_y + inv_A23*RHS_remodelling)/det_A
+    # remodelling[1:-1,-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)/det_A
     
-    left_corner_v_x   = (v_x[0,1]   + v_x[1,0] + v_x[1,1])/3
-    left_corner_v_y   = (v_y[0,1]   + v_y[1,0] + v_y[1,1])/3
-    left_corner_remodelling   = (remodelling[0,1] + remodelling[1,0] + remodelling[1,1] )/3
+    # left_corner_v_x   = (v_x[0,1]   + v_x[1,0] + v_x[1,1])/3
+    # left_corner_v_y   = (v_y[0,1]   + v_y[1,0] + v_y[1,1])/3
+    # left_corner_remodelling   = (remodelling[0,1] + remodelling[1,0] + remodelling[1,1] )/3
  
-    v_x[0,0] = left_corner_v_x
-    v_y[0,0] = left_corner_v_y
-    remodelling[0,0] = left_corner_remodelling
+    # v_x[0,0] = left_corner_v_x
+    # v_y[0,0] = left_corner_v_y
+    # remodelling[0,0] = left_corner_remodelling
 
 
 
@@ -1509,10 +1770,10 @@ def apply_constant_boundary_condition(image = np.zeros((10,10),dtype = float)):
     
     image : 2D array
     """
-    image[0,:] = image[1,:]
-    image[-1,:] = image[-2,:]
-    image[:,0] = image[:,1]
-    image[:,-1] = image[:,-2]
+    image[0,:] = image[2,:]
+    image[-1,:] = image[-3,:]
+    image[:,0] = image[:,2]
+    image[:,-1] = image[:,-3]
 
 def conduct_variational_optical_flow(movie, 
                                      delta_x = 1.0,
@@ -1600,9 +1861,9 @@ def conduct_variational_optical_flow(movie,
     else: 
         optical_flow_method = variational_optical_flow_jit
 
-    initial_v_x = np.full((movie.shape[1]+2,movie.shape[2]+2),float(v_x_guess)) 
-    initial_v_y = np.full((movie.shape[1]+2,movie.shape[2]+2),float(v_y_guess)) 
-    initial_remodelling = np.full((movie.shape[1]+2,movie.shape[2]+2),float(remodelling_guess)) 
+    initial_v_x = np.full((movie.shape[1],movie.shape[2]),float(v_x_guess)) 
+    initial_v_y = np.full((movie.shape[1],movie.shape[2]),float(v_y_guess)) 
+    initial_remodelling = np.full((movie.shape[1],movie.shape[2]),float(remodelling_guess)) 
     print('starting optical flow calculations')
     print('')
     print('initial matrices have the following means')
@@ -1957,12 +2218,12 @@ def make_convergence_plots(result, filename_start):
 
         x_positions, y_positions, v_x, v_y = subsample_velocities_for_visualisation(result, iteration =i, arrow_boxsize = 4)
         plt.subplot(231)
-        costum_imshow(original_data[0,:,:],delta_x = delta_x,v_min = np.min(original_data[0,:,:]), v_max = np.max(original_data[:,0,0]))
+        costum_imshow(original_data[0,:,:],delta_x = delta_x,v_min = np.min(original_data[0,:,:]), v_max = np.max(original_data[0,:,:]))
         plt.quiver(y_positions, x_positions, v_y[0,:,:], -v_x[0,:,:], color = 'magenta',headwidth=5, scale = None)
         plt.xlabel('')
 
         plt.subplot(232)
-        this_speed_frame = np.zeros((original_data.shape[1]+2, original_data.shape[2]+2))
+        this_speed_frame = np.zeros((original_data.shape[1], original_data.shape[2]))
         this_speed_frame[:,:] = result['speed_steps'][0,i,:,:]
         costum_imshow(this_speed_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
         plt.xlabel('')
@@ -1973,7 +2234,7 @@ def make_convergence_plots(result, filename_start):
         plt.title('Motion speed [$\mathrm{\mu m}$/s]')
 
         plt.subplot(233)
-        this_remodelling_frame = np.zeros((original_data.shape[1]+2, original_data.shape[2]+2))
+        this_remodelling_frame = np.zeros((original_data.shape[1], original_data.shape[2]))
         this_remodelling_frame[:,:] = result['remodelling_steps'][0,i,:,:]
         costum_imshow(this_remodelling_frame,delta_x = delta_x, autoscale = True, cmap = 'plasma')
         plt.ylabel('')
@@ -1982,7 +2243,7 @@ def make_convergence_plots(result, filename_start):
         plt.title('Net remodelling')
 
         plt.subplot(234)
-        this_remodelling_frame = np.zeros((original_data.shape[1]+2, original_data.shape[2]+2))
+        this_remodelling_frame = np.zeros((original_data.shape[1], original_data.shape[2]))
         this_remodelling_frame[:,:] = result['v_x_steps'][0,i,:,:]
         costum_imshow(this_remodelling_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
         colorbar = plt.colorbar(shrink = 0.6)
@@ -1990,7 +2251,7 @@ def make_convergence_plots(result, filename_start):
         plt.title('x velocity [$\mathrm{\mu m}$/s]')
 
         plt.subplot(235)
-        this_remodelling_frame = np.zeros((original_data.shape[1]+2, original_data.shape[2]+2))
+        this_remodelling_frame = np.zeros((original_data.shape[1], original_data.shape[2]))
         this_remodelling_frame[:,:] = result['v_y_steps'][0,i,:,:]
         costum_imshow(this_remodelling_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
         plt.ylabel('')
