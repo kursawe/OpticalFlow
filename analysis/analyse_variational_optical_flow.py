@@ -62,7 +62,7 @@ def make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling =
     result = optical_flow.conduct_variational_optical_flow(movie,
                                                            delta_x = delta_x,
                                                            delta_t = 1.0,
-                                                           speed_alpha=1.0,
+                                                           speed_alpha=10.0,
                                                            remodelling_alpha = 10000.0,
                                                            v_x_guess=v_x_start,
                                                            v_y_guess=v_y_start,
@@ -133,8 +133,8 @@ def try_stopping_condition():
 def illustrate_boundary_artifacts():
     v_x = 0.1
     v_y = 0.2
-    first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50)
-    second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 50)
+    first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50, include_noise = False)
+    second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 50, include_noise = False)
     second_frame += 0.05
     movie = np.stack((first_frame, second_frame))
     
@@ -144,6 +144,8 @@ def illustrate_boundary_artifacts():
     iteration_stepsize = 10000
     # max_iterations = 10
     # iteration_stepsize = 1
+    # max_iterations = 90
+    # iteration_stepsize = 5
 
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -165,7 +167,7 @@ def illustrate_boundary_artifacts():
                                                            max_iterations = max_iterations,
                                                            iteration_stepsize = iteration_stepsize,
                                                            smoothing_sigma = None,
-                                                           tolerance = 1e-9,
+                                                           tolerance = 1e-17,
                                                            include_remodelling = True,
                                                            return_iterations = True)
     
