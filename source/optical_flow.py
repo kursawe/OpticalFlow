@@ -12,6 +12,7 @@ import matplotlib.ticker
 from matplotlib.animation import FuncAnimation
 import skimage.filters
 import cv2
+import scipy.sparse
 
 @jit(nopython=True, error_model = "numpy")
 def conduct_optical_flow_jit(movie, box_size = 15, delta_x = 1.0, delta_t = 1.0, include_remodelling = False):
@@ -698,7 +699,7 @@ def apply_numerical_derivative(matrix, rule):
 
     return derivative 
 
-@njit
+# @njit
 def variational_optical_flow_jit(movie,
                              delta_x = 1.0,
                              delta_t = 1.0,
@@ -807,136 +808,352 @@ def variational_optical_flow_jit(movie,
 
         dIdxx = apply_numerical_derivative(previous_frame_w_border, 'dxx')
         dIdyy = apply_numerical_derivative(previous_frame_w_border, 'dyy')
-        dIdyx = apply_numerical_derivative(previous_frame_w_border, 'dyx')
+        dIdxy = apply_numerical_derivative(previous_frame_w_border, 'dyx')
 
-        ####Set up all boundary conditions
-        ## LHS Matrix for the bulk
-        A11 = (previous_frame*dIdxx -2*previous_frame**2 -4*speed_alpha)
-        A12 = previous_frame*dIdyx
-        A22 = previous_frame*dIdyy -2*previous_frame**2-4*speed_alpha
-        A31 = -dIdx
-        A32 = -dIdy
-        A33 = +(1 +4*remodelling_alpha)
+        ### Make the linear system
+        
+        N_i = number_of_Xpixels - 2
+        N_j = number_of_Ypixels - 2
+        system_dimension = 3*N_i*N_j
+        LHS_matrix = scipy.sparse.lil_matrix((system_dimension, system_dimension), dtype=float)
+        RHS = np.zeros(system_dimension)
+        ux_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'ux')
+        uy_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'uy')
+        remodelling_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'uy')
+
+        # Euler-Lagrange for u_x
+        LHS_matrix[ux_i_j_indices, ux_i_j_indices] = (previous_frame[1:-1,1:-1]*(dIdxx[1:-1,1:-1] + 
+                                                      -2*previous_frame[1:-1,1:-1])
+                                                      -4*speed_alpha).flatten()
+
+        LHS_matrix[ux_i_j_indices, uy_i_j_indices] = (previous_frame[1:-1,1:-1]*dIdxy[1:-1,1:-1]).flatten()
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            -dIdx[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            +dIdx[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'ux')] = speed_alpha
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'ux')] = speed_alpha
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = (previous_frame[1:-1,1:-1]*(
+            -dIdx[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = (previous_frame[1:-1,1:-1]*(
+            +dIdx[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'uy')] = (previous_frame[1:-1,1:-1]*(
+            -dIdy[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'uy')] = (previous_frame[1:-1,1:-1]*(
+            +dIdy[1:-1,1:-1])).flatten()/2
+        
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, -1, 'uy')] = (previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+        
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, +1, 'uy')] = (previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, +1, 'uy')] = (-previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, -1, 'uy')] = (-previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+        
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = (+ previous_frame[1:-1,1:-1]).flatten()/2
+
+        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = (- previous_frame[1:-1,1:-1]).flatten()/2
+
+        RHS[ux_i_j_indices] = (- previous_frame[1:-1,1:-1]*dIdx_t).flatten()
+
+        # Euler-Lagrange for u_y
+        LHS_matrix[uy_i_j_indices, uy_i_j_indices] = (previous_frame[1:-1,1:-1]*(dIdyy[1:-1,1:-1] + 
+                                                      -2*previous_frame[1:-1,1:-1])
+                                                      -4*speed_alpha).flatten()
+
+        LHS_matrix[uy_i_j_indices, ux_i_j_indices] = (previous_frame[1:-1,1:-1]*dIdxy[1:-1,1:-1]).flatten()
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = (previous_frame[1:-1,1:-1]*(
+            -dIdy[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = (previous_frame[1:-1,1:-1]*(
+            +dIdy[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'uy')] = speed_alpha
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'uy')] = speed_alpha
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            -dIdy[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            +dIdy[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            -dIdx[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            +dIdx[1:-1,1:-1])).flatten()/2
+        
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, -1, 'ux')] = (previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+        
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, +1, 'ux')] = (previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, +1, 'ux')] = (-previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, -1, 'ux')] = (-previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+        
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = (+ previous_frame[1:-1,1:-1]).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = (- previous_frame[1:-1,1:-1]).flatten()/2
+
+        RHS[ux_i_j_indices] = (- previous_frame[1:-1,1:-1]*dIdy_t).flatten()
+
+        # Euler-Lagrange for remodelling
+        LHS_matrix[remodelling_i_j_indices, remodelling_i_j_indices] = -1 - 4*remodelling_alpha
+
+        LHS_matrix[remodelling_i_j_indices, ux_i_j_indices] = dIdx[1:-1,1:-1]
+
+        LHS_matrix[remodelling_i_j_indices, uy_i_j_indices] = dIdy[1:-1,1:-1]
+
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = remodelling_alpha
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = remodelling_alpha
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = remodelling_alpha
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = remodelling_alpha
+
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = -previous_frame[1:-1,1:-1]/2
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = previous_frame[1:-1,1:-1]/2
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = -previous_frame[1:-1,1:-1]/2
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = previous_frame[1:-1,1:-1]/2
+
+        RHS[remodelling_i_j_indices] =  -dIdt.flatten()
+
+        # Top boundary - EL for ux
+        top_boundary_ux_i_j_indices = np.arange(N_j)*3
+        top_boundary_uxp1_indices = np.arange(N_j)*3
+
+        LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices] = (previous_frame[1,1:-1]*(
+            2*previous_frame[1,1:-1]) + speed_alpha).flatten()# ux[i+1,j] from du_x/dx
+
+        LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices + 1] = 0 # uy[i+1,j] from du_y/dx
+        
+        LHS_matrix[3*np.arange(N_j - 1), 3*N_j + 3 + 3*np.arange(N_j - 1) + 1] = 0 # uy[i+1,j+1] from du_y/dxy
+
+        LHS_matrix[3*np.arange(1,N_j), 3*N_j - 3 + 3*np.arange(1,N_j) + 1] = 0 # uy[i+1,j-1] from du_y/dxy
+
+        LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices + 2] = 0  # remodelling[i+1,j]
+
+        # Top boundary EL for uy
+        LHS_matrix[top_boundary_ux_i_j_indices + 1, 3*N_j + top_boundary_ux_i_j_indices] = 0 # ux[i+1, j]
+
+        # stopping here
+        LHS_matrix[top_boundary_ux_i_j_indices + 1, get_index_set(N_i, N_j, -1, 0, 'uy')] = speed_alpha
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'uy')] = speed_alpha
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            -dIdy[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            +dIdy[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            -dIdx[1:-1,1:-1])).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'ux')] = (previous_frame[1:-1,1:-1]*(
+            +dIdx[1:-1,1:-1])).flatten()/2
+        
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, -1, 'ux')] = (previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+        
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, +1, 'ux')] = (previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, +1, 'ux')] = (-previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, -1, 'ux')] = (-previous_frame[1:-1,1:-1]*
+            previous_frame[1:-1,1:-1]).flatten()/4
+        
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = (+ previous_frame[1:-1,1:-1]).flatten()/2
+
+        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = (- previous_frame[1:-1,1:-1]).flatten()/2
+
+        RHS[ux_i_j_indices] = (- previous_frame[1:-1,1:-1]*dIdy_t).flatten()
+
+        # Euler-Lagrange for remodelling
+        LHS_matrix[remodelling_i_j_indices, remodelling_i_j_indices] = -1 - 4*remodelling_alpha
+
+        LHS_matrix[remodelling_i_j_indices, ux_i_j_indices] = dIdx[1:-1,1:-1]
+
+        LHS_matrix[remodelling_i_j_indices, uy_i_j_indices] = dIdy[1:-1,1:-1]
+
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = remodelling_alpha
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = remodelling_alpha
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = remodelling_alpha
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = remodelling_alpha
+
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = -previous_frame[1:-1,1:-1]/2
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = previous_frame[1:-1,1:-1]/2
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = -previous_frame[1:-1,1:-1]/2
+        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = previous_frame[1:-1,1:-1]/2
+
+        RHS[remodelling_i_j_indices] =  -dIdt.flatten()
+
+
+
+
+def get_index_set(N_i, N_j,i_offset, j_offset,quantity):
+    i_start = 0
+    i_end = N_i
+    if i_offset == -1:
+        i_start = 1
+    if i_offset == 1:
+        i_end = N_i - 1
+
+    j_start = 0
+    j_end = N_j
+    if j_offset == -1:
+        j_start = 1
+    if j_offset == 1:
+        j_end = N_j - 1
+
+    i_meshgrid, j_meshgrid = np.meshgrid(np.arange(i_start, i_end), np.arange(j_start, j_end), indexing='ij')
+    if quantity == 'ux':
+        quantity_offset = 0
+    elif quantity == 'uy':
+        quantity_offset = 1
+    elif quantity == 'remodelling':
+        quantity_offset = 2
+    else:
+        raise(ValueError, 'I cannot figure out what quantity you want from me. Must be ux, uy, or remodelling.')
+
+    indices = (3 * N_j * (i_meshgrid + i_offset) + 3 * (j_meshgrid + j_offset) + quantity_offset).flatten()
+
+    return indices
     
-        # This is not the actual determinant, but the 2D top left sub-determinant
-        det_A = A11*A22 - A12*A12
 
-        # inverse of the matrix
-        inv_A11 = A22/det_A
-        inv_A12 = -A12/det_A
-        inv_A22 = A11/det_A
-        inv_A31 = (A32*A12 - A22*A31)/(det_A*A33)
-        inv_A32 = (A12*A31 - A32*A11)/(det_A*A33)
-        inv_A33 = 1/A33
+
+#                 RHS_x=(previous_frame*(remodelling_x-dIdx_t) -previous_frame*
+#                                         (2*dIdx*dxdVx+dIdy*dxdVy+dIdx*dydVy)
+#                                     -previous_frame**2*
+#                                         (Vx_barx+dxydVy)-speed_alpha*Vx_bar)
+#                                     #
+#                 RHS_y= (previous_frame*(remodelling_y-dIdy_t) -previous_frame*
+#                               (2*dIdy*dydVy+dIdx*dydVx+dIdy*dxdVx)
+#                          -previous_frame**2*(Vy_bary+dxydVx)-speed_alpha*Vy_bar)
+#                                     #
+#                 RHS_remodelling = +(dIdt+previous_frame*dxdVx
+#                                      +previous_frame*dydVy
+#                                      +remodelling_alpha*remodelling_bar)
  
-        total_num_iterations = 0
-        # last maximum stepsize among v_x, v_y, and remodelling
-        last_max_stepsize = 10*tolerance
-        
-        # This is useful to define outside the loop in case use_remodelling is False
-        remodelling_step = 10*tolerance
-        
-        while total_num_iterations < max_iterations and last_max_stepsize> tolerance:
+#         while total_num_iterations < max_iterations and last_max_stepsize> tolerance:
 
 
-            dxydVx = apply_numerical_derivative(v_x,'dxy')
-            dxdVx = apply_numerical_derivative(v_x,'dx')
-            dydVx = apply_numerical_derivative(v_x,'dy')
-            Vx_barx = apply_numerical_derivative(v_x,'bar_x') 
-            Vx_bary = apply_numerical_derivative(v_x,'bar_y') 
-            Vx_bar = Vx_barx + Vx_bary 
+#             dxydVx = apply_numerical_derivative(v_x,'dxy')
+#             dxdVx = apply_numerical_derivative(v_x,'dx')
+#             dydVx = apply_numerical_derivative(v_x,'dy')
+#             Vx_barx = apply_numerical_derivative(v_x,'bar_x') 
+#             Vx_bary = apply_numerical_derivative(v_x,'bar_y') 
+#             Vx_bar = Vx_barx + Vx_bary 
             
-            dxdVy = apply_numerical_derivative(v_y,'dx')
-            dydVy = apply_numerical_derivative(v_y,'dy')
-            dxydVy = apply_numerical_derivative(v_y,'dxy')
-            Vy_barx = apply_numerical_derivative(v_y,'bar_x') 
-            Vy_bary = apply_numerical_derivative(v_y,'bar_y') 
-            Vy_bar = Vy_barx + Vy_bary
-#
-            remodelling_barx = apply_numerical_derivative(remodelling, 'bar_x')
-            remodelling_bary = apply_numerical_derivative(remodelling, 'bar_y')
-            remodelling_bar = remodelling_barx + remodelling_bary
-            remodelling_x = apply_numerical_derivative(remodelling, 'dx')
-            remodelling_y = apply_numerical_derivative(remodelling, 'dy')
+#             dxdVy = apply_numerical_derivative(v_y,'dx')
+#             dydVy = apply_numerical_derivative(v_y,'dy')
+#             dxydVy = apply_numerical_derivative(v_y,'dxy')
+#             Vy_barx = apply_numerical_derivative(v_y,'bar_x') 
+#             Vy_bary = apply_numerical_derivative(v_y,'bar_y') 
+#             Vy_bar = Vy_barx + Vy_bary
+# #
+#             remodelling_barx = apply_numerical_derivative(remodelling, 'bar_x')
+#             remodelling_bary = apply_numerical_derivative(remodelling, 'bar_y')
+#             remodelling_bar = remodelling_barx + remodelling_bary
+#             remodelling_x = apply_numerical_derivative(remodelling, 'dx')
+#             remodelling_y = apply_numerical_derivative(remodelling, 'dy')
 
-            if include_remodelling:
-                ## RHS
-                RHS_x=(previous_frame*(remodelling_x-dIdx_t) -previous_frame*
-                                        (2*dIdx*dxdVx+dIdy*dxdVy+dIdx*dydVy)
-                                    -previous_frame**2*
-                                        (Vx_barx+dxydVy)-speed_alpha*Vx_bar)
-                                    #
-                RHS_y= (previous_frame*(remodelling_y-dIdy_t) -previous_frame*
-                              (2*dIdy*dydVy+dIdx*dydVx+dIdy*dxdVx)
-                         -previous_frame**2*(Vy_bary+dxydVx)-speed_alpha*Vy_bar)
-                                    #
-                RHS_remodelling = +(dIdt+previous_frame*dxdVx
-                                     +previous_frame*dydVy
-                                     +remodelling_alpha*remodelling_bar)
+#             if include_remodelling:
+#                 ## RHS
+#                 RHS_x=(previous_frame*(remodelling_x-dIdx_t) -previous_frame*
+#                                         (2*dIdx*dxdVx+dIdy*dxdVy+dIdx*dydVy)
+#                                     -previous_frame**2*
+#                                         (Vx_barx+dxydVy)-speed_alpha*Vx_bar)
+#                                     #
+#                 RHS_y= (previous_frame*(remodelling_y-dIdy_t) -previous_frame*
+#                               (2*dIdy*dydVy+dIdx*dydVx+dIdy*dxdVx)
+#                          -previous_frame**2*(Vy_bary+dxydVx)-speed_alpha*Vy_bar)
+#                                     #
+#                 RHS_remodelling = +(dIdt+previous_frame*dxdVx
+#                                      +previous_frame*dydVy
+#                                      +remodelling_alpha*remodelling_bar)
      
-                v_x_new[1:-1,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y)
-                v_y_new[1:-1,1:-1] = (inv_A12*RHS_x + inv_A22*RHS_y)
-                remodelling_new[1:-1,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)
+#                 v_x_new[1:-1,1:-1] = (inv_A11*RHS_x + inv_A12*RHS_y)
+#                 v_y_new[1:-1,1:-1] = (inv_A12*RHS_x + inv_A22*RHS_y)
+#                 remodelling_new[1:-1,1:-1] = (inv_A31*RHS_x + inv_A32*RHS_y + inv_A33*RHS_remodelling)
                 
-            else:
-                RHS_x = (-previous_frame*dIdx_t -previous_frame*
-                                    (2*dIdx*dxdVx+dIdy*dxdVy+dIdx*dydVy)
-                            -previous_frame**2*(Vx_barx+dxydVy)
-                            -speed_alpha*Vx_bar)
-                                #
-                RHS_y = (-previous_frame*(dIdy_t) -previous_frame*
-                                    (2*dIdy*dydVy+dIdx*dydVx+dIdy*dxdVx)
-                            -previous_frame**2*(Vy_bary+dxydVx)
-                            -speed_alpha*Vy_bar)
+#             else:
+#                 RHS_x = (-previous_frame*dIdx_t -previous_frame*
+#                                     (2*dIdx*dxdVx+dIdy*dxdVy+dIdx*dydVy)
+#                             -previous_frame**2*(Vx_barx+dxydVy)
+#                             -speed_alpha*Vx_bar)
+#                                 #
+#                 RHS_y = (-previous_frame*(dIdy_t) -previous_frame*
+#                                     (2*dIdy*dydVy+dIdx*dydVx+dIdy*dxdVx)
+#                             -previous_frame**2*(Vy_bary+dxydVx)
+#                             -speed_alpha*Vy_bar)
                         
-                # Matrix without remodelling
-                boundary_prefactor = 4
-                A_11 = previous_frame*dIdxx -2*previous_frame**2 -boundary_prefactor*speed_alpha 
-                A_12 = previous_frame*dIdyx
-                A_22 = previous_frame*dIdyy -2*previous_frame**2 -boundary_prefactor*speed_alpha
+#                 # Matrix without remodelling
+#                 boundary_prefactor = 4
+#                 A_11 = previous_frame*dIdxx -2*previous_frame**2 -boundary_prefactor*speed_alpha 
+#                 A_12 = previous_frame*dIdyx
+#                 A_22 = previous_frame*dIdyy -2*previous_frame**2 -boundary_prefactor*speed_alpha
                                            
-                det_A = A_11*A_22-A_12*A_12
+#                 det_A = A_11*A_22-A_12*A_12
                 
-                inv_A_11 = 1/det_A*A_22
-                inv_A_12 = -1/det_A*A_12
-                inv_A_22 = 1/det_A*A_11
+#                 inv_A_11 = 1/det_A*A_22
+#                 inv_A_12 = -1/det_A*A_12
+#                 inv_A_22 = 1/det_A*A_11
         
-                v_x_new[:] = inv_A_11*RHS_x + inv_A_12*RHS_y
-                v_y_new[:] = inv_A_12*RHS_x + inv_A_22*RHS_y
+#                 v_x_new[:] = inv_A_11*RHS_x + inv_A_12*RHS_y
+#                 v_y_new[:] = inv_A_12*RHS_x + inv_A_22*RHS_y
                     
-            # if total_num_iterations <10:
-                # relaxation_factor = 1.0
-            # else:
-                # relaxation_factor = 1.001
-            # relaxation_factor = 1.00
-            # v_x_new[:] = (1-relaxation_factor)*v_x + relaxation_factor*v_x_new
-            # v_y_new[:] = (1-relaxation_factor)*v_y + relaxation_factor*v_y_new
-            v_x_step = np.linalg.norm(v_x[1:-1,1:-1] - v_x_new[1:-1,1:-1])/ np.linalg.norm(v_x_new[1:-1,1:-1])
-            v_y_step = np.linalg.norm(v_y[1:-1,1:-1]- v_y_new[1:-1,1:-1])/ np.linalg.norm(v_y_new[1:-1,1:-1])
-            v_x[:] = v_x_new
-            v_y[:] = v_y_new
-            if include_remodelling:
-                # remodelling_new[:] = (1-relaxation_factor)*remodelling + relaxation_factor*remodelling_new
-                remodelling_step = np.linalg.norm(remodelling[1:-1,1:-1] - remodelling_new[1:-1,1:-1])/ np.linalg.norm(remodelling_new[1:-1,1:-1])
-                remodelling[:] = remodelling_new
+#             # if total_num_iterations <10:
+#                 # relaxation_factor = 1.0
+#             # else:
+#                 # relaxation_factor = 1.001
+#             # relaxation_factor = 1.00
+#             # v_x_new[:] = (1-relaxation_factor)*v_x + relaxation_factor*v_x_new
+#             # v_y_new[:] = (1-relaxation_factor)*v_y + relaxation_factor*v_y_new
+#             v_x_step = np.linalg.norm(v_x[1:-1,1:-1] - v_x_new[1:-1,1:-1])/ np.linalg.norm(v_x_new[1:-1,1:-1])
+#             v_y_step = np.linalg.norm(v_y[1:-1,1:-1]- v_y_new[1:-1,1:-1])/ np.linalg.norm(v_y_new[1:-1,1:-1])
+#             v_x[:] = v_x_new
+#             v_y[:] = v_y_new
+#             if include_remodelling:
+#                 # remodelling_new[:] = (1-relaxation_factor)*remodelling + relaxation_factor*remodelling_new
+#                 remodelling_step = np.linalg.norm(remodelling[1:-1,1:-1] - remodelling_new[1:-1,1:-1])/ np.linalg.norm(remodelling_new[1:-1,1:-1])
+#                 remodelling[:] = remodelling_new
                 
-            apply_constant_boundary_condition(v_x)
-            apply_constant_boundary_condition(v_y)
-            apply_constant_boundary_condition(remodelling)
-            last_max_stepsize = max((v_x_step, v_y_step, remodelling_step))
+#             apply_constant_boundary_condition(v_x)
+#             apply_constant_boundary_condition(v_y)
+#             apply_constant_boundary_condition(remodelling)
+#             last_max_stepsize = max((v_x_step, v_y_step, remodelling_step))
 
-            total_num_iterations +=1
-            if total_num_iterations%10000 == 0:
-                print('passed ' + str(total_num_iterations) + ' iterations, the current stepsize in v_x, v_y, and remodelling are: ' )
-                print(v_x_step) 
-                print(v_y_step) 
-                print(remodelling_step) 
-                print('')
+#             total_num_iterations +=1
+#             if total_num_iterations%10000 == 0:
+#                 print('passed ' + str(total_num_iterations) + ' iterations, the current stepsize in v_x, v_y, and remodelling are: ' )
+#                 print(v_x_step) 
+#                 print(v_y_step) 
+#                 print(remodelling_step) 
+#                 print('')
    
-    all_v_x *= delta_x/delta_t
-    all_v_y *= delta_x/delta_t
-    all_speed = np.sqrt(all_v_x**2+all_v_y**2)
-    return all_v_x, all_v_y, all_speed, all_remodelling, total_num_iterations
+#     all_v_x *= delta_x/delta_t
+#     all_v_y *= delta_x/delta_t
+#     all_speed = np.sqrt(all_v_x**2+all_v_y**2)
+#     return all_v_x, all_v_y, all_speed, all_remodelling, total_num_iterations
 
 @njit
 def apply_constant_boundary_condition(image = np.zeros((10,10),dtype = float)):
