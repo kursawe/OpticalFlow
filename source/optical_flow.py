@@ -936,10 +936,9 @@ def variational_optical_flow_jit(movie,
 
         # Top boundary - EL for ux
         top_boundary_ux_i_j_indices = np.arange(N_j)*3
-        top_boundary_uxp1_indices = np.arange(N_j)*3
 
         LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices] = (previous_frame[1,1:-1]*(
-            2*previous_frame[1,1:-1]) + speed_alpha).flatten()# ux[i+1,j] from du_x/dx
+            2*previous_frame[1,1:-1]) + 2* speed_alpha).flatten()# ux[i+1,j] from du_x/dx
 
         LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices + 1] = 0 # uy[i+1,j] from du_y/dx
         
@@ -950,63 +949,121 @@ def variational_optical_flow_jit(movie,
         LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices + 2] = 0  # remodelling[i+1,j]
 
         # Top boundary EL for uy
+
+        LHS_matrix[top_boundary_ux_i_j_indices + 1, 3*N_j + top_boundary_ux_i_j_indices + 1] = 2*speed_alpha # uy[i+1, j]
+
         LHS_matrix[top_boundary_ux_i_j_indices + 1, 3*N_j + top_boundary_ux_i_j_indices] = 0 # ux[i+1, j]
 
-        # stopping here
-        LHS_matrix[top_boundary_ux_i_j_indices + 1, get_index_set(N_i, N_j, -1, 0, 'uy')] = speed_alpha
+        LHS_matrix[3*np.arange(N_j - 1) + 1, 3*N_j + 3 + 3*np.arange(N_j - 1) + 1] = 0 # ux[i+1, j+1]
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'uy')] = speed_alpha
+        LHS_matrix[3*np.arange(1,N_j) + 1, 3*N_j - 3 + 3*np.arange(1,N_j) + 1] = 0 # ux[i+1,j-1] from du_x/dxy
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            -dIdy[1:-1,1:-1])).flatten()/2
+        LHS_matrix[top_boundary_ux_i_j_indices + 1, 3*N_j + top_boundary_ux_i_j_indices + 2] = 0 # remodelling[i+1,j]
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            +dIdy[1:-1,1:-1])).flatten()/2
+        # top boundary EL for remodelling  
+        LHS_matrix[top_boundary_ux_i_j_indices + 2, 3*N_j + top_boundary_ux_i_j_indices + 2] = 2*remodelling_alpha
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            -dIdx[1:-1,1:-1])).flatten()/2
+        LHS_matrix[top_boundary_ux_i_j_indices + 2, 3*N_j + top_boundary_ux_i_j_indices] = 0
+        LHS_matrix[top_boundary_ux_i_j_indices + 2,  3*N_j + top_boundary_ux_i_j_indices + 1] = 0
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            +dIdx[1:-1,1:-1])).flatten()/2
+        # Bottom boundary - EL for ux
+        bottom_boundary_ux_i_j_indices = 3*N_j*(N_i-1) + np.arange(N_j)*3
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices, bottom_boundary_ux_i_j_indices - 3*N_j] = (previous_frame[1,1:-1]*(
+            2*previous_frame[1,1:-1]) + 2* speed_alpha).flatten()# ux[i+1,j] from du_x/dx
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices,bottom_boundary_ux_i_j_indices - 3*N_j + 1] = 0 # uy[i+1,j] from du_y/dx
         
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, -1, 'ux')] = (previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(N_j - 1), 3 + 3*np.arange(N_j - 1) - 3*N_j + 1] = 0 # uy[i+1,j+1] from du_y/dxy
+
+        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(1,N_j), 3*np.arange(1,N_j) + 3*N_j - 3 + 1] = 0 # uy[i+1,j-1] from du_y/dxy
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices, bottom_boundary_ux_i_j_indices - 3*N_j  + 2] = 0  # remodelling[i+1,j]
+
+        # Bottom boundary EL for uy
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, 3*N_j + bottom_boundary_ux_i_j_indices + 1] = 2*speed_alpha # uy[i-1, j]
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, 3*N_j + bottom_boundary_ux_i_j_indices] = 0 # ux[i-1, j]
+
+        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(N_j - 1) + 1, 3*N_j + 3 + 3*np.arange(N_j - 1) + 1] = 0 # ux[i-1, j+1]
+
+        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(1,N_j) + 1, 3*N_j - 3 + 3*np.arange(1,N_j) + 1] = 0 # ux[i-1,j-1] from du_x/dxy
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, 3*N_j + bottom_boundary_ux_i_j_indices + 2] = 0 # remodelling[i-1,j]
+
+        # Bottom boundary EL for remodelling   
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 2, bottom_boundary_ux_i_j_indices - 3*N_j  + 2] = 2*remodelling_alpha
+
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 2, bottom_boundary_ux_i_j_indices - 3*N_j] = 0
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 2,  bottom_boundary_ux_i_j_indices - 3*N_j  + 1] = 0
+
+        # Left boundary - EL for ux
+        left_boundary_ux_i_j_indices = np.arange(N_i)*3*N_j
+        LHS_matrix[left_boundary_ux_i_j_indices, left_boundary_ux_i_j_indices + 3] = 2*speed_alpha # ux[i, j+1]
+
+        LHS_matrix[left_boundary_ux_i_j_indices, left_boundary_ux_i_j_indices  + 3 + 1] = 0 # uy[i, j+1]
+
+        LHS_matrix[3*np.arange(N_i - 1)*N_j,  3*np.arange(N_i - 1)*N_j  + 3*N_j + 3 + 1] = 0 # uy[i+1, j+1]
+
+        LHS_matrix[3*np.arange(1,N_i)*N_j,  3*np.arange(1,N_i) - 3*N_j + 3 + 1] = 0 # uy[i-1,j+1] from du_y/dxy
+
+        LHS_matrix[left_boundary_ux_i_j_indices, left_boundary_ux_i_j_indices + 3 + 2] = 0 # remodelling[i,j+1]
+
+        # Left boundary EL for uy
+
+        LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3 + 1] = (previous_frame[1,1:-1]*(
+        2*previous_frame[1,1:-1]) + 2*speed_alpha).flatten()# uy[i,j+1] from du_x/dx
+
+        LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3] = 0 # ux[i,j+1] from du_x/dx
         
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, +1, 'ux')] = (previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[3*np.arange(N_i - 1)*N_j,  3*np.arange(N_i - 1)*N_j + 3*N_j + 3] = 0 # ux[i+1,j+1] from du_x/dxy
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, +1, 'ux')] = (-previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[3*np.arange(1,N_i - 1)*N_j,  3*np.arange(1,N_j) - 3*N_j + 3 ] = 0 # uy[i+1,j-1] from du_y/dxy
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, -1, 'ux')] = (-previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3 + 2] = 0  # remodelling[i,j+1]
+
+        # Left boundary EL for remodelling   
+        LHS_matrix[left_boundary_ux_i_j_indices + 2, left_boundary_ux_i_j_indices + 3 + 2] = 2*remodelling_alpha
+
+        LHS_matrix[left_boundary_ux_i_j_indices + 2, left_boundary_ux_i_j_indices + 3 ] = 0
+        LHS_matrix[left_boundary_ux_i_j_indices + 2, left_boundary_ux_i_j_indices + 3 + 1] = 0
         
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = (+ previous_frame[1:-1,1:-1]).flatten()/2
+        # Right boundary - EL for ux
+        right_boundary_ux_i_j_indices = np.arange(N_i)*3*N_j + (N_j -1) * 3
+        LHS_matrix[right_boundary_ux_i_j_indices, right_boundary_ux_i_j_indices - 3] = 2*speed_alpha # ux[i, j+1]
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = (- previous_frame[1:-1,1:-1]).flatten()/2
+        LHS_matrix[right_boundary_ux_i_j_indices, right_boundary_ux_i_j_indices  - 3 + 1] = 0 # uy[i, j+1]
 
-        RHS[ux_i_j_indices] = (- previous_frame[1:-1,1:-1]*dIdy_t).flatten()
+        LHS_matrix[3*np.arange(N_i - 1)*N_j + (N_j -1) * 3,  3*np.arange(N_i - 1)*N_j  + 3*N_j - 3 + 1] = 0 # uy[i+1, j+1]
 
-        # Euler-Lagrange for remodelling
-        LHS_matrix[remodelling_i_j_indices, remodelling_i_j_indices] = -1 - 4*remodelling_alpha
+        LHS_matrix[3*np.arange(1,N_i)*N_j + (N_j -1) * 3,  3*np.arange(1,N_i) - 3*N_j - 3 + 1] = 0 # uy[i-1,j+1] from du_y/dxy
 
-        LHS_matrix[remodelling_i_j_indices, ux_i_j_indices] = dIdx[1:-1,1:-1]
+        LHS_matrix[right_boundary_ux_i_j_indices, right_boundary_ux_i_j_indices - 3 + 2] = 0 # remodelling[i,j+1]
 
-        LHS_matrix[remodelling_i_j_indices, uy_i_j_indices] = dIdy[1:-1,1:-1]
+        # Right boundary EL for uy
 
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = remodelling_alpha
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = remodelling_alpha
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = remodelling_alpha
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = remodelling_alpha
+        LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3 + 1] = (previous_frame[1,1:-1]*(
+        2*previous_frame[1,1:-1]) + 2*speed_alpha).flatten()# uy[i,j+1] from du_x/dx
 
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = -previous_frame[1:-1,1:-1]/2
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = previous_frame[1:-1,1:-1]/2
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = -previous_frame[1:-1,1:-1]/2
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = previous_frame[1:-1,1:-1]/2
+        LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3] = 0 # ux[i,j+1] from du_x/dx
+        
+        LHS_matrix[3*np.arange(N_i - 1)*N_j + (N_j -1 )*3,  3*np.arange(N_i - 1)*N_j + 3*N_j - 3] = 0 # ux[i+1,j+1] from du_x/dxy
 
-        RHS[remodelling_i_j_indices] =  -dIdt.flatten()
+        LHS_matrix[3*np.arange(1,N_i - 1)*N_j + (N_j -1 )*3,  3*np.arange(1,N_j) - 3*N_j - 3 ] = 0 # uy[i+1,j-1] from du_y/dxy
+
+        LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3 + 2] = 0  # remodelling[i,j+1]
+
+        # Right boundary EL for remodelling   
+        LHS_matrix[right_boundary_ux_i_j_indices + 2, right_boundary_ux_i_j_indices - 3 + 2] = 2*remodelling_alpha
+
+        LHS_matrix[right_boundary_ux_i_j_indices + 2, right_boundary_ux_i_j_indices - 3 ] = 0
+        LHS_matrix[right_boundary_ux_i_j_indices + 2, right_boundary_ux_i_j_indices - 3 + 1] = 0
+        
 
 
+
+ 
 
 
 def get_index_set(N_i, N_j,i_offset, j_offset,quantity):
