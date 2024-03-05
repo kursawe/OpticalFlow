@@ -819,126 +819,130 @@ def variational_optical_flow_jit(movie,
         RHS = np.zeros(system_dimension)
         ux_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'ux')
         uy_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'uy')
-        remodelling_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'uy')
+        remodelling_i_j_indices = get_index_set(N_i, N_j, 0, 0, 'remodelling')
 
         # Euler-Lagrange for u_x
-        LHS_matrix[ux_i_j_indices, ux_i_j_indices] = (previous_frame[1:-1,1:-1]*(dIdxx[1:-1,1:-1] + 
-                                                      -2*previous_frame[1:-1,1:-1])
+        LHS_matrix[ux_i_j_indices, ux_i_j_indices] = (previous_frame*(dIdxx + 
+                                                      -2*previous_frame)
                                                       -4*speed_alpha).flatten()
 
-        LHS_matrix[ux_i_j_indices, uy_i_j_indices] = (previous_frame[1:-1,1:-1]*dIdxy[1:-1,1:-1]).flatten()
+        LHS_matrix[ux_i_j_indices, uy_i_j_indices] = (previous_frame*dIdxy).flatten()
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            -dIdx[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, 0, 'ux'), get_index_set(N_i, N_j, -1, 0, 'ux')] = (
+            previous_frame[1:,:]*( -dIdx[1:,:] + previous_frame[1:,:]) + speed_alpha).flatten()
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            +dIdx[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, 0, 'ux'), get_index_set(N_i, N_j, +1, 0, 'ux')] = (
+            previous_frame[:-1,:]*( +dIdx[:-1,:] + previous_frame[:-1,:]) + speed_alpha).flatten()
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'ux')] = speed_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'ux'), get_index_set(N_i, N_j, 0, -1, 'ux')] = speed_alpha
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'ux')] = speed_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'ux'), get_index_set(N_i, N_j, 0, +1, 'ux')] = speed_alpha
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = (previous_frame[1:-1,1:-1]*(
-            -dIdx[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'ux'), get_index_set(N_i, N_j, 0, -1, 'uy')] = (
+            previous_frame[:,1:]*( -dIdx[:,1:])).flatten()/2
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = (previous_frame[1:-1,1:-1]*(
-            +dIdx[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'ux'), get_index_set(N_i, N_j, 0, +1, 'uy')] = (
+            previous_frame[:,:-1]*( +dIdx[:,:-1])).flatten()/2
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'uy')] = (previous_frame[1:-1,1:-1]*(
-            -dIdy[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, 0, 'ux'), get_index_set(N_i, N_j, -1, 0, 'uy')] = (
+            previous_frame[1:,:]*( -dIdy[1:,:])).flatten()/2
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'uy')] = (previous_frame[1:-1,1:-1]*(
-            +dIdy[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, 0, 'ux'), get_index_set(N_i, N_j, +1, 0, 'uy')] = (
+            previous_frame[1:,:]*( +dIdy[1:,:])).flatten()/2
         
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, -1, 'uy')] = (previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, -1, 'ux'), get_index_set(N_i, N_j, -1, -1, 'uy')] = (
+            previous_frame[1:,1:]* previous_frame[1:,1:]).flatten()/4
         
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, +1, 'uy')] = (previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, +1, 'ux'), get_index_set(N_i, N_j, +1, +1, 'uy')] = (
+            previous_frame[:-1,:-1]* previous_frame[:-1,:-1]).flatten()/4
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, +1, 'uy')] = (-previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, +1, 'ux'), get_index_set(N_i, N_j, -1, +1, 'uy')] = (
+            -previous_frame[1:,:-1]* previous_frame[1:,:-1]).flatten()/4
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, -1, 'uy')] = (-previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, -1, 'ux'), get_index_set(N_i, N_j, +1, -1, 'uy')] = (
+            -previous_frame[:-1,1:]* previous_frame[:-1,1:]).flatten()/4
         
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = (+ previous_frame[1:-1,1:-1]).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, 0, 'ux'), get_index_set(N_i, N_j, -1, 0, 'remodelling')] = (
+            + previous_frame[1:,:]).flatten()/2
 
-        LHS_matrix[ux_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = (- previous_frame[1:-1,1:-1]).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, 0, 'ux'), get_index_set(N_i, N_j, +1, 0, 'remodelling')] = (
+            - previous_frame[:-1,:]).flatten()/2
 
-        RHS[ux_i_j_indices] = (- previous_frame[1:-1,1:-1]*dIdx_t).flatten()
+        RHS[ux_i_j_indices] = (- previous_frame*dIdx_t).flatten()
 
         # Euler-Lagrange for u_y
-        LHS_matrix[uy_i_j_indices, uy_i_j_indices] = (previous_frame[1:-1,1:-1]*(dIdyy[1:-1,1:-1] + 
-                                                      -2*previous_frame[1:-1,1:-1])
+        LHS_matrix[uy_i_j_indices, uy_i_j_indices] = (previous_frame*(dIdyy + 
+                                                      -2*previous_frame)
                                                       -4*speed_alpha).flatten()
 
-        LHS_matrix[uy_i_j_indices, ux_i_j_indices] = (previous_frame[1:-1,1:-1]*dIdxy[1:-1,1:-1]).flatten()
+        LHS_matrix[uy_i_j_indices, ux_i_j_indices] = (previous_frame*dIdxy).flatten()
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = (previous_frame[1:-1,1:-1]*(
-            -dIdy[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'uy'), get_index_set(N_i, N_j, 0, -1, 'uy')] = (
+            previous_frame[:,1:]*( -dIdy[:,1:] + previous_frame[:,1:]) + speed_alpha).flatten()
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = (previous_frame[1:-1,1:-1]*(
-            +dIdy[1:-1,1:-1] + previous_frame[1:-1,1:-1]) + speed_alpha).flatten()
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'uy'), get_index_set(N_i, N_j, 0, +1, 'uy')] = (
+            previous_frame[:,:-1]*( +dIdy[:,:-1] + previous_frame[:,:-1]) + speed_alpha).flatten()
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'uy')] = speed_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'uy'), get_index_set(N_i, N_j, -1, 0, 'uy')] = speed_alpha
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'uy')] = speed_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'uy'), get_index_set(N_i, N_j, +1, 0, 'uy')] = speed_alpha
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            -dIdy[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, 0, 'uy'), get_index_set(N_i, N_j, -1, 0, 'ux')] = (
+            previous_frame[1:,:]*( -dIdy[1:,:])).flatten()/2
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            +dIdy[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, 0, 'uy'), get_index_set(N_i, N_j, +1, 0, 'ux')] = (
+            previous_frame[:-1,:]*( +dIdy[:-1,:])).flatten()/2
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            -dIdx[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'uy'), get_index_set(N_i, N_j, 0, -1, 'ux')] = (
+            previous_frame[:,1:]*( -dIdx[:,1:])).flatten()/2
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'ux')] = (previous_frame[1:-1,1:-1]*(
-            +dIdx[1:-1,1:-1])).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'uy'), get_index_set(N_i, N_j, 0, +1, 'ux')] = (
+            previous_frame[:,:-1]*( +dIdx[:,:-1])).flatten()/2
         
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, -1, 'ux')] = (previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, -1, 'uy'), get_index_set(N_i, N_j, -1, -1, 'ux')] = (
+            previous_frame[1:,1:]* previous_frame[1:,1:]).flatten()/4
         
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, +1, 'ux')] = (previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, +1, 'uy'), get_index_set(N_i, N_j, +1, +1, 'ux')] = (
+            previous_frame[:-1,:-1]* previous_frame[:-1,:-1]).flatten()/4
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, -1, +1, 'ux')] = (-previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, +1, 'uy'), get_index_set(N_i, N_j, -1, +1, 'ux')] = (
+            -previous_frame[1:,:-1]* previous_frame[1:,:-1]).flatten()/4
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, +1, -1, 'ux')] = (-previous_frame[1:-1,1:-1]*
-            previous_frame[1:-1,1:-1]).flatten()/4
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, -1, 'uy'), get_index_set(N_i, N_j, +1, -1, 'ux')] = (
+            -previous_frame[:-1,1:]* previous_frame[:-1,1:]).flatten()/4
         
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = (+ previous_frame[1:-1,1:-1]).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'uy'), get_index_set(N_i, N_j, 0, -1, 'remodelling')] = (
+            + previous_frame[:,1:]).flatten()/2
 
-        LHS_matrix[uy_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = (- previous_frame[1:-1,1:-1]).flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'uy'), get_index_set(N_i, N_j, 0, +1, 'remodelling')] = (
+            - previous_frame[:,:-1]).flatten()/2
 
-        RHS[ux_i_j_indices] = (- previous_frame[1:-1,1:-1]*dIdy_t).flatten()
+        RHS[uy_i_j_indices] = (- previous_frame*dIdy_t).flatten()
 
         # Euler-Lagrange for remodelling
         LHS_matrix[remodelling_i_j_indices, remodelling_i_j_indices] = -1 - 4*remodelling_alpha
 
-        LHS_matrix[remodelling_i_j_indices, ux_i_j_indices] = dIdx[1:-1,1:-1]
+        LHS_matrix[remodelling_i_j_indices, ux_i_j_indices] = dIdx.flatten()
 
-        LHS_matrix[remodelling_i_j_indices, uy_i_j_indices] = dIdy[1:-1,1:-1]
+        LHS_matrix[remodelling_i_j_indices, uy_i_j_indices] = dIdy.flatten()
 
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = remodelling_alpha
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = remodelling_alpha
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = remodelling_alpha
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'remodelling')] = remodelling_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'remodelling'), get_index_set(N_i, N_j, -1, 0, 'remodelling')] = remodelling_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, 0, 'remodelling'), get_index_set(N_i, N_j, +1, 0, 'remodelling')] = remodelling_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'remodelling'), get_index_set(N_i, N_j, 0, -1, 'remodelling')] = remodelling_alpha
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'remodelling'), get_index_set(N_i, N_j, 0, +1, 'remodelling')] = remodelling_alpha
 
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'ux')] = -previous_frame[1:-1,1:-1]/2
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'ux')] = previous_frame[1:-1,1:-1]/2
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'uy')] = -previous_frame[1:-1,1:-1]/2
-        LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, +1, 'uy')] = previous_frame[1:-1,1:-1]/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, -1, 0, 'remodelling'), get_index_set(N_i, N_j, -1, 0, 'ux')] = -previous_frame[1:,:].flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, +1, 0, 'remodelling'), get_index_set(N_i, N_j, +1, 0, 'ux')] = previous_frame[:-1,:].flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, -1, 'remodelling'), get_index_set(N_i, N_j, 0, -1, 'uy')] = -previous_frame[:,1:].flatten()/2
+        LHS_matrix[get_diag_index_set(N_i, N_j, 0, +1, 'remodelling'), get_index_set(N_i, N_j, 0, +1, 'uy')] = previous_frame[:,:-1].flatten()/2
 
         RHS[remodelling_i_j_indices] =  -dIdt.flatten()
 
         # Top boundary - EL for ux
         top_boundary_ux_i_j_indices = np.arange(N_j)*3
 
-        LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices] = (previous_frame[1,1:-1]*(
-            2*previous_frame[1,1:-1]) + 2* speed_alpha).flatten()# ux[i+1,j] from du_x/dx
+        LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices] = (previous_frame[1,:]*(
+            2*previous_frame[1,:]) + 2* speed_alpha).flatten()# ux[i+1,j] from du_x/dx
 
         LHS_matrix[top_boundary_ux_i_j_indices, 3*N_j + top_boundary_ux_i_j_indices + 1] = 0 # uy[i+1,j] from du_y/dx
         
@@ -969,8 +973,8 @@ def variational_optical_flow_jit(movie,
         # Bottom boundary - EL for ux
         bottom_boundary_ux_i_j_indices = 3*N_j*(N_i-1) + np.arange(N_j)*3
 
-        LHS_matrix[bottom_boundary_ux_i_j_indices, bottom_boundary_ux_i_j_indices - 3*N_j] = (previous_frame[1,1:-1]*(
-            2*previous_frame[1,1:-1]) + 2* speed_alpha).flatten()# ux[i+1,j] from du_x/dx
+        LHS_matrix[bottom_boundary_ux_i_j_indices, bottom_boundary_ux_i_j_indices - 3*N_j] = (previous_frame[-1,:]*(
+            2*previous_frame[-1,:]) + 2* speed_alpha).flatten()# ux[i+1,j] from du_x/dx
 
         LHS_matrix[bottom_boundary_ux_i_j_indices,bottom_boundary_ux_i_j_indices - 3*N_j + 1] = 0 # uy[i+1,j] from du_y/dx
         
@@ -982,15 +986,15 @@ def variational_optical_flow_jit(movie,
 
         # Bottom boundary EL for uy
 
-        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, 3*N_j + bottom_boundary_ux_i_j_indices + 1] = 2*speed_alpha # uy[i-1, j]
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, bottom_boundary_ux_i_j_indices - 3*N_j + 1] = 2*speed_alpha # uy[i-1, j]
 
-        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, 3*N_j + bottom_boundary_ux_i_j_indices] = 0 # ux[i-1, j]
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, bottom_boundary_ux_i_j_indices - 3*N_j] = 0 # ux[i-1, j]
 
-        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(N_j - 1) + 1, 3*N_j + 3 + 3*np.arange(N_j - 1) + 1] = 0 # ux[i-1, j+1]
+        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(N_j - 1) + 1, 3*np.arange(N_j - 1) - 3*N_j + 3 + 1] = 0 # ux[i-1, j+1]
 
-        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(1,N_j) + 1, 3*N_j - 3 + 3*np.arange(1,N_j) + 1] = 0 # ux[i-1,j-1] from du_x/dxy
+        LHS_matrix[3*N_j*(N_i-1) + 3*np.arange(1,N_j) + 1, 3*np.arange(1,N_j) - 3*N_j - 3 + 1] = 0 # ux[i-1,j-1] from du_x/dxy
 
-        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, 3*N_j + bottom_boundary_ux_i_j_indices + 2] = 0 # remodelling[i-1,j]
+        LHS_matrix[bottom_boundary_ux_i_j_indices + 1, bottom_boundary_ux_i_j_indices - 3*N_j + 2] = 0 # remodelling[i-1,j]
 
         # Bottom boundary EL for remodelling   
         LHS_matrix[bottom_boundary_ux_i_j_indices + 2, bottom_boundary_ux_i_j_indices - 3*N_j  + 2] = 2*remodelling_alpha
@@ -1012,14 +1016,14 @@ def variational_optical_flow_jit(movie,
 
         # Left boundary EL for uy
 
-        LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3 + 1] = (previous_frame[1,1:-1]*(
-        2*previous_frame[1,1:-1]) + 2*speed_alpha).flatten()# uy[i,j+1] from du_x/dx
+        LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3 + 1] = (previous_frame[:,1]*(
+        2*previous_frame[:,1]) + 2*speed_alpha).flatten()# uy[i,j+1] from du_x/dx
 
         LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3] = 0 # ux[i,j+1] from du_x/dx
         
         LHS_matrix[3*np.arange(N_i - 1)*N_j,  3*np.arange(N_i - 1)*N_j + 3*N_j + 3] = 0 # ux[i+1,j+1] from du_x/dxy
 
-        LHS_matrix[3*np.arange(1,N_i - 1)*N_j,  3*np.arange(1,N_j) - 3*N_j + 3 ] = 0 # uy[i+1,j-1] from du_y/dxy
+        LHS_matrix[3*np.arange(1,N_i - 1)*N_j,  3*np.arange(1,N_i-1)*N_j - 3*N_j + 3 ] = 0 # uy[i+1,j-1] from du_y/dxy
 
         LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 3 + 2] = 0  # remodelling[i,j+1]
 
@@ -1043,14 +1047,14 @@ def variational_optical_flow_jit(movie,
 
         # Right boundary EL for uy
 
-        LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3 + 1] = (previous_frame[1,1:-1]*(
-        2*previous_frame[1,1:-1]) + 2*speed_alpha).flatten()# uy[i,j+1] from du_x/dx
+        LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3 + 1] = (previous_frame[:,-1]*(
+        2*previous_frame[:,-1]) + 2*speed_alpha).flatten()# uy[i,j+1] from du_x/dx
 
         LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3] = 0 # ux[i,j+1] from du_x/dx
         
         LHS_matrix[3*np.arange(N_i - 1)*N_j + (N_j -1 )*3,  3*np.arange(N_i - 1)*N_j + 3*N_j - 3] = 0 # ux[i+1,j+1] from du_x/dxy
 
-        LHS_matrix[3*np.arange(1,N_i - 1)*N_j + (N_j -1 )*3,  3*np.arange(1,N_j) - 3*N_j - 3 ] = 0 # uy[i+1,j-1] from du_y/dxy
+        LHS_matrix[3*np.arange(1,N_i - 1)*N_j + (N_j -1 )*3,  3*np.arange(1,N_i-1)*N_j - 3*N_j - 3 ] = 0 # uy[i+1,j-1] from du_y/dxy
 
         LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 3 + 2] = 0  # remodelling[i,j+1]
 
@@ -1059,7 +1063,52 @@ def variational_optical_flow_jit(movie,
 
         LHS_matrix[right_boundary_ux_i_j_indices + 2, right_boundary_ux_i_j_indices - 3 ] = 0
         LHS_matrix[right_boundary_ux_i_j_indices + 2, right_boundary_ux_i_j_indices - 3 + 1] = 0
+
+        system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
+        v_x[1:-1,1:-1][:] = np.reshape(system_solution[get_index_set(N_i, N_j, 0, 0, 'ux')],(N_i,N_j))
+        v_y[1:-1,1:-1][:] = np.reshape(system_solution[get_index_set(N_i, N_j, 0, 0, 'uy')],(N_i,N_j))
+        remodelling[1:-1,1:-1][:] = np.reshape(system_solution[get_index_set(N_i, N_j, 0, 0, 'remodelling')],(N_i,N_j))
+        apply_constant_boundary_condition(v_x)
+        apply_constant_boundary_condition(v_y)
+        apply_constant_boundary_condition(remodelling)
         
+    all_v_t *= delta_x/delta_t
+    all_v_y *= delta_x/delta_t
+    all_speed = np.sqrt(all_v_x**2+all_v_y**2)
+
+    return all_v_x, all_v_y, all_speed, all_remodelling
+
+       
+
+def get_diag_index_set(N_i, N_j,i_offset, j_offset,quantity):
+    i_start = 0
+    i_end = N_i
+    if i_offset == -1:
+        i_start = 1
+    if i_offset == 1:
+        i_end = N_i - 1
+
+    j_start = 0
+    j_end = N_j
+    if j_offset == -1:
+        j_start = 1
+    if j_offset == 1:
+        j_end = N_j - 1
+
+    i_meshgrid, j_meshgrid = np.meshgrid(np.arange(i_start, i_end), np.arange(j_start, j_end), indexing='ij')
+    if quantity == 'ux':
+        quantity_offset = 0
+    elif quantity == 'uy':
+        quantity_offset = 1
+    elif quantity == 'remodelling':
+        quantity_offset = 2
+    else:
+        raise(ValueError, 'I cannot figure out what quantity you want from me. Must be ux, uy, or remodelling.')
+
+    indices = (3 * N_j * i_meshgrid + 3 * j_meshgrid + quantity_offset).flatten()
+
+    return indices
+    
 
 
 
@@ -1329,7 +1378,8 @@ def conduct_variational_optical_flow(movie,
 
     result = dict()
     if return_iterations:
-        this_v_x, this_v_y, this_speed, this_remodelling, this_iteration_number = optical_flow_method(movie_to_analyse, 
+        # this_v_x, this_v_y, this_speed, this_remodelling, this_iteration_number = optical_flow_method(movie_to_analyse, 
+        this_v_x, this_v_y, this_speed, this_remodelling = optical_flow_method(movie_to_analyse, 
                                                                                     delta_x,
                                                                                     delta_t,
                                                                                     speed_alpha,
@@ -1367,7 +1417,8 @@ def conduct_variational_optical_flow(movie,
         tolerance_reached = False
         total_iterations = max_iterations
         for iteration_index in range(2,number_of_recorded_iterations+1):
-            this_v_x, this_v_y, this_speed, this_remodelling, this_iteration_number = optical_flow_method(movie_to_analyse, 
+            # this_v_x, this_v_y, this_speed, this_remodelling, this_iteration_number = optical_flow_method(movie_to_analyse, 
+            this_v_x, this_v_y, this_speed, this_remodelling = optical_flow_method(movie_to_analyse, 
                                                                                     delta_x,
                                                                                     delta_t,
                                                                                     speed_alpha,
@@ -1390,12 +1441,12 @@ def conduct_variational_optical_flow(movie,
             all_speed[:,iteration_index,:,:] = this_speed
             all_remodelling[:,iteration_index,:,:] = this_remodelling
             
-            if this_iteration_number< iteration_stepsize and not tolerance_reached:
-                total_iterations = (iteration_index -1) * iteration_stepsize + this_iteration_number
-                print('')
-                print('I reached the required tolerance within ' + str(total_iterations) + ' iterations. All remaining iteration steps will only contain one step instead of ' + str(iteration_index))
-                print('')
-                print(tolerance_reached)
+            # if this_iteration_number< iteration_stepsize and not tolerance_reached:
+            #     total_iterations = (iteration_index -1) * iteration_stepsize + this_iteration_number
+            #     print('')
+            #     print('I reached the required tolerance within ' + str(total_iterations) + ' iterations. All remaining iteration steps will only contain one step instead of ' + str(iteration_index))
+            #     print('')
+            #     print(tolerance_reached)
 
         result['v_x'] = all_v_x[:,-1,:,:]
         result['v_y'] = all_v_y[:,-1,:,:]
