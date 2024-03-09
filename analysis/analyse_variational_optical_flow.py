@@ -41,14 +41,13 @@ def make_fake_data(v_x = 0.1, v_y = 0.2, remodelling = 0.05, add_remodelling_slo
         movie[1,:,:] += remodelling
     return movie, delta_x
 
-def make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05, v_x_start = 0.09, v_y_start = 0.09,
+def analyse_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05, v_x_start = 0.09, v_y_start = 0.09,
                                              remodelling_start = 0.1):
     # make data
     movie, delta_x = make_fake_data(v_x = v_x, v_y = v_y, remodelling = remodelling)
-    iterations = 400000
-    iteration_stepsize = 20000
-    filename_start = os.path.join(os.path.dirname(__file__),'output','convergence_analysis_vx_'+ "{:.2f}".format(v_x)
-                                  + '_vy_' + "{:.2f}".format(v_x) + '_rmdlng_' +  "{:.2f}".format(remodelling) + '_iterations_' +str(iterations)
+    filename_start = os.path.join(os.path.dirname(__file__),'output','test_analysis_analysis_vx_'+ "{:.2f}".format(v_x)
+                                  + '_vy_' + "{:.2f}".format(v_x) + '_rmdlng_' +  "{:.2f}".format(remodelling)
+
                                   + '_vx_start_' + "{:.2f}".format(v_x_start))
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -67,24 +66,17 @@ def make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling =
                                                            v_x_guess=v_x_start,
                                                            v_y_guess=v_y_start,
                                                            remodelling_guess=remodelling_start,
-                                                           max_iterations = iterations,
                                                            smoothing_sigma = None,
-                                                           return_iterations = True,
-                                                           iteration_stepsize = iteration_stepsize,
+                                                           return_iterations = False,
                                                            tolerance = 1e-20,
                                                            include_remodelling = True)
+
+    optical_flow.make_joint_overlay_movie(result, 
+                                             filename_start + '.mp4', 
+                                             autoscale = True,
+                                             arrow_scale = 0.5,
+                                             arrow_boxsize = 4)
  
-    # plot convergence analysis
-    optical_flow.make_convergence_plots(result, filename_start = filename_start)
-    print('mean and max final v_x are')
-    print(np.mean(result['v_x']))
-    print(np.max(result['v_x']))
-    print('mean and max final v_y are')
-    print(np.mean(result['v_y']))
-    print(np.max(result['v_y']))
-    print('mean and max final remodelling are')
-    print(np.mean(result['remodelling']))
-    print(np.max(result['remodelling']))
     
 def try_stopping_condition():
     # make data
@@ -130,7 +122,7 @@ def try_stopping_condition():
     print(np.max(result['remodelling']))
  
 
-def illustrate_boundary_artifacts():
+def test_with_data_on_boundary():
     v_x = 0.1
     v_y = 0.2
     first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50, include_noise = False)
@@ -140,13 +132,6 @@ def illustrate_boundary_artifacts():
     
     filename_start = os.path.join(os.path.dirname(__file__),'output','boundary_example')
     
-    max_iterations = 200000
-    iteration_stepsize = 10000
-    # max_iterations = 10
-    # iteration_stepsize = 1
-    # max_iterations = 90
-    # iteration_stepsize = 5
-
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
         # plt.cla()
@@ -164,19 +149,15 @@ def illustrate_boundary_artifacts():
                                                            v_x_guess=0.01,
                                                            v_y_guess=0.01,
                                                            remodelling_guess=0.00,
-                                                           max_iterations = max_iterations,
-                                                           iteration_stepsize = iteration_stepsize,
                                                            smoothing_sigma = None,
                                                            tolerance = 1e-17,
                                                            include_remodelling = True,
-                                                           return_iterations = True)
+                                                           return_iterations = False)
     
-    optical_flow.make_convergence_plots(result, filename_start = filename_start)
-
     optical_flow.make_joint_overlay_movie(result, 
                                              filename_start + '_joint_result.mp4', 
                                              autoscale = True,
-                                             arrow_scale = 0.1,
+                                             arrow_scale = 0.5,
                                              arrow_boxsize = 4)
  
     print('mean and max final v_x are')
@@ -189,6 +170,53 @@ def illustrate_boundary_artifacts():
     print(np.mean(result['remodelling']))
     print(np.max(result['remodelling']))
  
+def test_big_fake_data():
+    v_x = 0.1
+    v_y = 0.2
+    first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 1000, include_noise = False)
+    second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 1000, include_noise = False)
+    second_frame += 0.05
+    movie = np.stack((first_frame, second_frame))
+    
+    filename_start = os.path.join(os.path.dirname(__file__),'output','big_file_example')
+    
+    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    def animate(i): 
+        # plt.cla()
+        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    ani.save(os.path.join(filename_start + '_data_.mp4'),dpi=300) 
+ 
+    # call method
+    result = optical_flow.conduct_variational_optical_flow(movie,
+                                                           delta_x = delta_x,
+                                                           delta_t = 1.0,
+                                                           speed_alpha=1e8,
+                                                           remodelling_alpha = 4*1e8,
+                                                           v_x_guess=0.01,
+                                                           v_y_guess=0.01,
+                                                           remodelling_guess=0.00,
+                                                           smoothing_sigma = None,
+                                                           tolerance = 1e-17,
+                                                           include_remodelling = True,
+                                                           return_iterations = False)
+    
+    optical_flow.make_joint_overlay_movie(result, 
+                                             filename_start + '_joint_result.mp4', 
+                                             autoscale = True,
+                                             arrow_scale = 0.5,
+                                             arrow_boxsize = 4)
+ 
+    print('mean and max final v_x are')
+    print(np.mean(result['v_x']))
+    print(np.max(result['v_x']))
+    print('mean and max final v_y are')
+    print(np.mean(result['v_y']))
+    print(np.max(result['v_y']))
+    print('mean and max final remodelling are')
+    print(np.mean(result['remodelling']))
+    print(np.max(result['remodelling']))
  
 ####
 #### These are functions I played around with while figuring things out. I may have changed the interface in optical_flow.py too much
@@ -483,12 +511,14 @@ def identify_non_uniform_remodelling_rate():
  
 
 if __name__ == '__main__':
-    # make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05)
+    # analyse_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05)
+    # analyse_simple_example(v_x = -0.2, v_y = -0.1, remodelling = 0.05)
     # make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05, 
                                             #  v_x_start = 0.9, v_y_start = 0.9, remodelling_start = 1.0)
 
     # try_stopping_condition()
-    illustrate_boundary_artifacts()
+    test_with_data_on_boundary()
+    # test_big_fake_data()
     
 
     ### These are old functions I didn't end up using in my presentation, but didn't want to delete just yet
