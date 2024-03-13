@@ -14,6 +14,7 @@ import skimage.filters
 import cv2
 import scipy.sparse
 import time
+from petsc4py import PETSc
 
 import logging
 # Set up logging
@@ -991,6 +992,7 @@ def variational_optical_flow(movie,
         print("making preconditioner")
         # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix_scaled, drop_tol = 1e-8, fill_factor = 20)
         # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix_scaled)
+        # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix, drop_tol = 1e-8)
         # LHS_ilu = scipy.sparse.linalg.splu(LHS_matrix_scaled)
         
         # preconditioner = scipy.sparse.linalg.LinearOperator(
@@ -998,21 +1000,107 @@ def variational_optical_flow(movie,
         # matvec = lambda b: LHS_ilu.solve(b)
         # )
 
-        print("preconditioner made ")
-        def callback(xk):
-           logger.info(f"Residual norm: {np.linalg.norm(RHS_scaled - LHS_matrix_scaled.dot(xk))}")
+        RHS_old = np.copy(RHS)
+        LHS_matrix = LHS_matrix.tocsr()
+        LHS_matrix_old = LHS_matrix.copy()
+        # Create a PETSc Vec for the right-hand side b
+        RHS_petsc = PETSc.Vec().create()
+        RHS_petsc.setSizes(RHS.shape[0])
+        RHS_petsc.setType('seq')  # Use 'mpi' for parallel computing
 
+        RHS_petsc.setArray(RHS)
+
+        # Create a PETSc Mat for the sparse matrix A
+        LHS_matrix_petsc = PETSc.Mat().createAIJ(size=LHS_matrix.shape, csr=(LHS_matrix.indptr, LHS_matrix.indices, LHS_matrix.data))
+        LHS_matrix_petsc.setBlockSizes(3, 3)
+        LHS_matrix_petsc.setUp()
+
+        # jacobi_preconditioner = PETSc.PC().create(comm=PETSc.COMM_WORLD)
+        # jacobi_preconditioner.setType(PETSc.PC.Type.JACOBI)
+
+        # multigrid_preconditioner = PETSc.PC().create(comm=PETSc.COMM_WORLD)
+        # multigrid_preconditioner.setType(PETSc.PC.Type.GAMG)
+
+        # preconditioner = PETSc.PC().create()
+        # preconditioner.setType(PETSc.PC.Type.COMPOSITE)
+        # print(dir(preconditioner))
+        # preconditioner.addCompositePCType(PETSc.PC.Type.JACOBI)
+        # preconditioner.addCompositePCType(PETSc.PC.Type.GAMG)
+        # preconditioner.getCompositePC().addPC(jacobi_preconditioner)
+        # preconditioner.getCompositePC().addPC(multigrid_preconditioner)
+
+        # Create the PETSc KSP solver
+        solver = PETSc.KSP().create()
+        solver.setOperators(LHS_matrix_petsc)
+        # solver.setType('bcgs')
+        # solver.setType('tfqmr')
+        solver.getPC().setType(PETSc.PC.Type.COMPOSITE)
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.JACOBI)
+        solver.getPC().addCompositePCType(PETSc.PC.Type.BJACOBI)
+        solver.getPC().addCompositePCType(PETSc.PC.Type.ILU)
+        solver.getPC().addCompositePCType(PETSc.PC.Type.GAMG)
+        # solver.getPC().setType(PETSc.PC.Type.JACOBI)  # Use LU decomposition as a preconditioner
+        # solver.getPC().setType(PETSc.PC.Type.BJACOBI)  # Use LU decomposition as a preconditioner
+        # solver.getPC().setType(PETSc.PC.Type.EISENSTAT)  # Use LU decomposition as a preconditioner
+        # solver.getPC().setType(PETSc.PC.Type.SOR)  # Use LU decomposition as a preconditioner
+        # solver.getPC().setType(PETSc.PC.Type.GAMG)  # Use LU decomposition as a preconditioner
+        # dir(solver)
+        # solver.setPC(preconditioner)  # Use LU decomposition as a preconditioner
+        # solver.addCompositePCType(PETSc.PC.Type.BJACOBI)
+        # solver.addCompositePCType(PETSc.PC.Type.GAMG)
+        # import pdb; pdb.set_trace()
+        # solver.setFromOptions()
+        # solver.setGMRESRestart(2)
+        # solver.getPC().setFactorLevels(1)
+        print(dir(PETSc.KSP.NormType))
+        solver.setNormType(PETSc.KSP.NormType.NORM_UNPRECONDITIONED)
+        # print(dir(solver.getPC()))
+
+        # Solve the linear system
+        petsc_solution = RHS_petsc.duplicate()
+        
+        print("starting solve")
         start_time = time.time()
+        solver.setMonitor(lambda ksp, its, rnorm: print("Iteration:", its, "  Residual norm:", rnorm))
+        # solver.setMonitor(PETSc.DefaultMonitor)
+        # solver.setNormType(PETSc.KSPSetNormType)
+        # solver.setMonitorFrequency(1)
+        # solver.setTolerances(rtol = 1e-9, max_it=1000)
+        # print(dir(solver.setTolerances))
+        print(dir(solver))
+
+
+        solver.solve(RHS_petsc, petsc_solution)
+        print(solver.getConvergedReason())
+
+        final_residual_norm = solver.getResidualNorm()
+
+        print("Final Residual Norm:", final_residual_norm)
+        # Get the solution as a NumPy array
+        system_solution = petsc_solution.getArray()
+
+        # print("preconditioner made ")
+        # def callback(xk):
+        #    logger.info(f"Residual norm: {np.linalg.norm(RHS_scaled - LHS_matrix_scaled.dot(xk))}")
+
         # system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
         # system_solution, solver_log = scipy.sparse.linalg.gmres(LHS_matrix.tocsr(), RHS, M=preconditioner)       
+        # system_solution, solver_log = scipy.sparse.linalg.qmr(LHS_matrix.tocsr(), RHS, callback = callback)       
+        # system_solution_scaled, solver_log = scipy.sparse.linalg.bicgstab(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
+        # system_solution_scaled, solver_log = scipy.sparse.linalg.tfqmr(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
+        # system_solution_scaled, solver_log = scipy.sparse.linalg.gmres(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
         # system_solution_scaled, solver_log = scipy.sparse.linalg.lgmres(LHS_matrix_scaled.tocsr(), RHS_scaled, M=preconditioner, callback = callback)       
-        system_solution_scaled, solver_log = scipy.sparse.linalg.gmres(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
-        system_solution = scaling_matrix @ system_solution_scaled
+        # system_solution_scaled, solver_log = scipy.sparse.linalg.gmres(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
+        # system_solution = scaling_matrix @ system_solution_scaled
         # system_solution, solver_log = scipy.sparse.linalg.gmres(LHS_matrix.tocsr(), RHS, callback = callback)       
         # full_solution = scipy.sparse.linalg.lsmr(LHS_matrix.tocsr(), RHS)       
         # system_solution = full_solution[0] 
         # solver_log = full_solution[1]
         end_time = time.time()
+        print('final residual norm')
+        print(np.linalg.norm(LHS_matrix_old @ system_solution - RHS_old)/np.linalg.norm(RHS_old))
+        print(np.linalg.norm(LHS_matrix_old @ system_solution - RHS_old)/np.linalg.norm(LHS_matrix_old @ np.zeros_like(system_solution) - RHS_old))
+        print(np.linalg.norm(LHS_matrix_old @ system_solution - RHS_old))
         elapsed_time_seconds = end_time - start_time
         elapsed_minutes = int(elapsed_time_seconds // 60)
         elapsed_seconds = int(elapsed_time_seconds % 60)
@@ -1020,7 +1108,7 @@ def variational_optical_flow(movie,
         print("finished optical flow caclulation")
         print(f"Time taken by the solver: {elapsed_minutes} minutes and {elapsed_seconds} seconds")
         print('the solver log is')
-        print(solver_log)
+        # print(solver_log)
 
         v_x[:] = np.reshape( system_solution[get_index_set(N_i, N_j, 0, 0, 'ux',include_boundaries=True)] , (N_i,N_j))
         v_y[:] = np.reshape( system_solution[get_index_set(N_i, N_j, 0, 0, 'uy',include_boundaries=True)] , (N_i,N_j))

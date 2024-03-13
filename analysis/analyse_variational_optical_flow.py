@@ -206,7 +206,7 @@ def test_big_fake_data():
                                              filename_start + '_joint_result.mp4', 
                                              autoscale = True,
                                              arrow_scale = 0.5,
-                                             arrow_boxsize = 4)
+                                             arrow_boxsize = 80)
  
     print('mean and max final v_x are')
     print(np.mean(result['v_x']))
@@ -518,7 +518,7 @@ if __name__ == '__main__':
 
     # try_stopping_condition()
     test_with_data_on_boundary()
-    # test_big_fake_data()
+    test_big_fake_data()
     
 
     ### These are old functions I didn't end up using in my presentation, but didn't want to delete just yet
