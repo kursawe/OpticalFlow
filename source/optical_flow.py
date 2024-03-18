@@ -711,14 +711,11 @@ def variational_optical_flow(movie,
                              delta_t = 1.0,
                              speed_alpha = 1.0,
                              remodelling_alpha = 1000.0,
-                             initial_v_x=np.zeros((10,10),dtype =float),
-                             initial_v_y= np.zeros((10,10),dtype =float),
-                             initial_remodelling=np.zeros((10,10),dtype =float),
-                             max_iterations = 10,
-                             tolerance = 1e-10,
-                             include_remodelling = True):
+                             smoothing_sigma = None,
+                             initial_v_x=0.0,
+                             initial_v_y= 0.0,
+                             initial_remodelling=0.0):
     """Perform variational optical flow on the movie.
-    This method is experimental and has not been validated.
     
     Parameters:
     -----------
@@ -734,41 +731,41 @@ def variational_optical_flow(movie,
     delta_t : float
         The length of the time interval between frames. This is assumed to be the same in x and y direction
 
-    alpha : float
-        The lagrange multiplier used in the method.
+    speed_alpha : float
+        The regularisation parameter for speed.
         
-    v_x_guess : float
-        The initial guess for v_x
+    remodelling_alpha : float
+        The regularisation parameter used for remodelling.
 
-    v_y_guess : float
-        The initial guess for v_x
-        
-    remodelling_guess : float
-        The initial guess for the net remodelling
-        
-    iterations : int
-        The number of jacobi iterations that we should use.
-        
-    tolerance : float
-        if the relative difference between successive iterations for all quantities (i.e. v_x, v_y, and remodelling) are less 
-        than this tolerance, then method stops
+    smoothing_sigma : float or None
+        If the value None is provided, no smoothing will be applied. Otherwise a gaussian blur with this sigma value
+        will be applied to the movie before optical flow is conducted.
 
-    include_remodelling : bool
-        If False, the Liu-shen method will be used, and zeros will be returned for remodelling terms
+    initial_v_x : float
+        The initial guess for v_x, can be a number or a matrix. Will only be used on the first frame
+
+    initial_v_y : float
+        The initial guess for v_y, can be a number or a matrix. Will only be used on the first frame
+        
+    initial_remodelling : float
+        The initial guess for remodelling, can be a number or a matrix. Will only be used on the first frame
         
     Returns:
     --------
     
-    v_x : nd array
-        The x-velocities. The array has the same dimension as the movie argument, unless return_iterations is True
-        
-    v_y : nd array
-        The y-velocities. The array has the same dimension as the movie argumen, unless return_iterations is True.
-    
-    net_remodelling : nd array
-        The net remodelling. The array has the same dimension as the movie argumen, unless return_iterations is True.
-    """
-    # blurred_images= all_images(dtype=float)
+    result : dict
+        The optical flow result. Entries will be
+    """ 
+    movie = movie.astype(np.float64)
+    if smoothing_sigma is not None:
+        movie_to_analyse = blur_movie(movie, smoothing_sigma=smoothing_sigma)
+    else:
+        movie_to_analyse = movie
+ 
+    initial_v_x = np.full((movie.shape[1],movie.shape[2]),float(initial_v_x)) 
+    initial_v_y = np.full((movie.shape[1],movie.shape[2]),float(initial_v_y)) 
+    initial_remodelling = np.full((movie.shape[1],movie.shape[2]),float(initial_remodelling)) 
+
     number_of_frames = movie.shape[0]
     number_of_Xpixels= movie.shape[1]
     number_of_Ypixels= movie.shape[2]
@@ -776,12 +773,12 @@ def variational_optical_flow(movie,
     all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)#previous 0.0001*0.019550342130987292
     all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)
     all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels),dtype = float)   
-    movie_w_borders = movie   
 
-    for frame_index in range(1,movie.shape[0]):
-        previous_frame_w_border = movie_w_borders[frame_index -1]
-        current_frame_w_border = movie_w_borders[frame_index]
-        # apply_constant_boundary_condition(current_frame_w_border)
+    for frame_index in range(1,movie_to_analyse.shape[0]):
+        print("Processing pair of frames number " + str(frame_index))
+        print(" ")
+        previous_frame_w_border = movie_to_analyse[frame_index -1]
+        current_frame_w_border = movie_to_analyse[frame_index]
 
         previous_frame = previous_frame_w_border[1:-1,1:-1]
 
@@ -811,7 +808,9 @@ def variational_optical_flow(movie,
         dIdxy = apply_numerical_derivative(previous_frame_w_border, 'dyx')
 
         ### Make the linear system
-        
+        print("constructing the linear system")
+        linear_system_start_time = time.time()
+
         N_i = number_of_Xpixels
         N_j = number_of_Ypixels
         system_dimension = 3*N_i*N_j
@@ -947,6 +946,40 @@ def variational_optical_flow(movie,
         LHS_matrix[top_boundary_ux_i_j_indices, top_boundary_ux_i_j_indices + 6*N_j] = -1
         LHS_matrix[top_boundary_ux_i_j_indices + 1, top_boundary_ux_i_j_indices + 6*N_j + 1] = -1
         LHS_matrix[top_boundary_ux_i_j_indices + 2, top_boundary_ux_i_j_indices + 6*N_j + 2] = -1
+        
+        # # Top left corner
+        # LHS_matrix[0, 0] = 1
+        # LHS_matrix[0 + 1, 0 + 1] = 1
+        # LHS_matrix[0 + 2, 0 + 2] = 1
+
+        # LHS_matrix[0, 0 + 6*N_j + 6] = 1
+        # LHS_matrix[0 + 1, 0 + 6*N_j + 6 + 1] = 1
+        # LHS_matrix[0 + 2, 0 + 6*N_j + 6 + 2] = 1
+        
+        # LHS_matrix[0, 0 + 6] = -1
+        # LHS_matrix[0 + 1, 0 + 6 + 1] = -1
+        # LHS_matrix[0 + 2, 0 + 6 + 2] = -1
+
+        # LHS_matrix[0, 0 + 6*N_j] = -1
+        # LHS_matrix[0 + 1, 0 + 6*N_j + 1] = -1
+        # LHS_matrix[0 + 2, 0 + 6*N_j + 2] = -1
+
+        # # Top right corner
+        # LHS_matrix[3*(N_j -1), 3*(N_j -1)] = 1
+        # LHS_matrix[3*(N_j -1) + 1, 3*(N_j -1) + 1] = 1
+        # LHS_matrix[3*(N_j -1) + 2, 3*(N_j -1) + 2] = 1
+
+        # LHS_matrix[3*(N_j -1), 3*(N_j -1) + 6*N_j - 6] = 1
+        # LHS_matrix[3*(N_j -1) + 1, 3*(N_j -1) + 6*N_j - 6 + 1] = 1
+        # LHS_matrix[3*(N_j -1) + 2, 3*(N_j -1) + 6*N_j - 6 + 2] = 1
+ 
+        # LHS_matrix[3*(N_j -1), 3*(N_j -1) - 6] = -1
+        # LHS_matrix[3*(N_j -1) + 1, 3*(N_j -1) - 6 + 1] = -1
+        # LHS_matrix[3*(N_j -1) + 2, 3*(N_j -1) - 6 + 2] = -1
+
+        # LHS_matrix[3*(N_j -1), 3*(N_j -1) + 6*N_j] = -1
+        # LHS_matrix[3*(N_j -1) + 1, 3*(N_j -1) + 6*N_j + 1] = -1
+        # LHS_matrix[3*(N_j -1) + 2, 3*(N_j -1) + 6*N_j + 2] = -1
 
         # Bottom boundary
         bottom_boundary_ux_i_j_indices = 3*N_j*(N_i-1) + np.arange(N_j)*3
@@ -958,7 +991,41 @@ def variational_optical_flow(movie,
         LHS_matrix[bottom_boundary_ux_i_j_indices + 1, bottom_boundary_ux_i_j_indices -6*N_j + 1] = -1
         LHS_matrix[bottom_boundary_ux_i_j_indices + 2, bottom_boundary_ux_i_j_indices -6*N_j + 2] = -1
 
-        # Left boundary
+        # # bottom left corner
+        # LHS_matrix[3*(N_i -1)*N_j, 3*(N_i -1)*N_j] = 1
+        # LHS_matrix[3*(N_i -1)*N_j + 1, 3*(N_i -1)*N_j + 1] = 1
+        # LHS_matrix[3*(N_i -1)*N_j + 2, 3*(N_i -1)*N_j + 2] = 1
+
+        # LHS_matrix[3*(N_i -1)*N_j, 3*(N_i -1)*N_j - 6*N_j + 6] = 1
+        # LHS_matrix[3*(N_i -1)*N_j + 1, 3*(N_i -1)*N_j - 6*N_j + 6 + 1] = 1
+        # LHS_matrix[3*(N_i -1)*N_j + 2, 3*(N_i -1)*N_j - 6*N_j + 6 + 2] = 1
+
+        # LHS_matrix[3*(N_i -1)*N_j, 3*(N_i -1)*N_j - 6*N_j] = -1
+        # LHS_matrix[3*(N_i -1)*N_j + 1, 3*(N_i -1)*N_j - 6*N_j + 1] = -1
+        # LHS_matrix[3*(N_i -1)*N_j + 2, 3*(N_i -1)*N_j - 6*N_j + 2] = -1
+
+        # LHS_matrix[3*(N_i -1)*N_j, 3*(N_i -1)*N_j + 6] = -1
+        # LHS_matrix[3*(N_i -1)*N_j + 1, 3*(N_i -1)*N_j + 6 + 1] = -1
+        # LHS_matrix[3*(N_i -1)*N_j + 2, 3*(N_i -1)*N_j + 6 + 2] = -1
+
+        # # Bottom right corner
+        # LHS_matrix[3*(N_j)*N_i - 3, 3*(N_j)*N_i - 3] = 1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 1, 3*(N_j)*N_i - 3 + 1] = 1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 2, 3*(N_j)*N_i - 3 + 2] = 1
+
+        # LHS_matrix[3*(N_j)*N_i - 3, 3*(N_j)*N_i - 3 - 6*N_j - 6] = 1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 1, 3*(N_j)*N_i - 3 - 6*N_j - 6 + 1] = 1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 2, 3*(N_j)*N_i - 3 - 6*N_j - 6 + 2] = 1
+ 
+        # LHS_matrix[3*(N_j)*N_i - 3, 3*(N_j)*N_i - 3 - 6] = -1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 1, 3*(N_j)*N_i - 3 - 6 + 1] = -1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 2, 3*(N_j)*N_i - 3 - 6 + 2] = -1
+
+        # LHS_matrix[3*(N_j)*N_i - 3, 3*(N_j)*N_i - 3 - 6*N_j] = -1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 1, 3*(N_j)*N_i - 3 - 6*N_j + 1] = -1
+        # LHS_matrix[3*(N_j)*N_i - 3 + 2, 3*(N_j)*N_i - 3 - 6*N_j + 2] = -1
+
+        # # Left boundary
         left_boundary_ux_i_j_indices = np.arange(N_i)*3*N_j
         LHS_matrix[left_boundary_ux_i_j_indices, left_boundary_ux_i_j_indices] = 1
         LHS_matrix[left_boundary_ux_i_j_indices + 1, left_boundary_ux_i_j_indices + 1] = 1
@@ -978,142 +1045,225 @@ def variational_optical_flow(movie,
         LHS_matrix[right_boundary_ux_i_j_indices + 1, right_boundary_ux_i_j_indices - 6 + 1] = -1
         LHS_matrix[right_boundary_ux_i_j_indices + 2, right_boundary_ux_i_j_indices - 6 + 2] = -1
         
-        # import pdb; pdb.set_trace()
-        
-        # diagonal = LHS_matrix.diagonal()
-        # scaling_factors = 1.0 / np.sqrt(np.abs(diagonal))
-        # scaling_matrix = scipy.sparse.diags([scaling_factors], [0], format='csr')
-        # LHS_matrix_scaled = scaling_matrix @ LHS_matrix @ scaling_matrix
-        # RHS_scaled = scaling_matrix @ RHS
-
-        # LHS_scaed = LHS_matrix
-        # system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
-        # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix, drop_tol = 1e-10)
-        print("making preconditioner")
-        # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix_scaled, drop_tol = 1e-8, fill_factor = 20)
-        # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix_scaled)
-        # LHS_ilu = scipy.sparse.linalg.spilu(LHS_matrix, drop_tol = 1e-8)
-        # LHS_ilu = scipy.sparse.linalg.splu(LHS_matrix_scaled)
-        
-        # preconditioner = scipy.sparse.linalg.LinearOperator(
-        # shape = LHS_matrix.shape,
-        # matvec = lambda b: LHS_ilu.solve(b)
-        # )
-
-        RHS_old = np.copy(RHS)
         LHS_matrix = LHS_matrix.tocsr()
-        LHS_matrix_old = LHS_matrix.copy()
-        # Create a PETSc Vec for the right-hand side b
+        linear_system_end_time = time.time()
+
+        minutes, seconds, milliseconds = format_elapsed_time(linear_system_end_time - linear_system_start_time)
+        print(f"Time taken: {minutes} minutes, {seconds} seconds, {milliseconds} milliseconds")
+        print(" ")
+
+       
+        # print('constructing nullspace')
+        # nullspace, eigenvalues, other_nullspace = scipy.sparse.linalg.svds(LHS_matrix,k = 1, tol = 1e-2, which = 'SM', solver = 'lobpcg', maxiter = 1000)
+        # print(eigenvalues)
+        # print(nullspace)
+
+        # a= 1/0
+        PETSc.Options().setValue('-ksp_type','richardson')
+        # PETSc.Options().setValue('-ksp_type','bcgs')
+        # PETSc.Options().setValue('-ksp_gmres_restart',1000)
+        PETSc.Options().setValue('-ksp_divtol',1e10)
+        # PETSc.Options().setValue('-ksp_diagonal_scale',True)
+        # PETSc.Options().setValue('-ksp_type','richardson')
+        # PETSc.Options().setValue('-pc_factor_levels',50)
+        # PETSc.Options().setValue('-ksp_error_if_not_converged',1)
+        # PETSc.Options().setValue('-ksp_gmres_modifiedgramschmidt',1)
+        PETSc.Options().setValue('-pc_type', 'bjacobi')
+        # PETSc.Options().setValue('-pc_type', 'hypre')
+        # PETSc.Options().setValue('-pc_type', 'composite')
+        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,gamg')
+        # PETSc.Options().setValue('-pc_type', 'gamg')
+        # PETSc.Options().setValue('-sub_2_pc_gamg_type', 'classical')
+        # PETSc.Options().setValue('-sub_2_pc_gamg_esteig_ksp_type', 'chebyshev')
+        # PETSc.Options().setValue('-sub_2_pc_gamg_agg_n_smooths', 0)
+        # PETSc.Options().setValue('-pc_gamg_type', 'classical')
+        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_type', 'chebyshev')
+        # PETSc.Options().setValue('-pc_gamg_agg_n_smooths', 0)
+        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_type', 'chebyshev')
+        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_max_it', 40)
+
+        # PETSc.Options().setValue('-pc_type', 'mg')
+        # PETSc.Options().setValue('-pc_mg_levels', 20)
+        # PETSc.Options().setValue('-pc_gamg_repartition', True)
+        # PETSc.Options().setValue('-pc_gamg_aggressive_coarsening', 10)
+        # PETSc.Options().setValue('-pc_gamg_threshold', -1)
+        # PETSc.Options().setValue('-pc_type', 'mg')
+        # PETSc.Options().setValue('-pc_mg_levels', 20)
+        # PETSc.Options().setValue('-pc_hypre_type', 'ams')
+        # PETSc.Options().setValue('-pc_hypre_type', 'boomeramg')
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_relax_type_all', 'Jacobi')
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_numfunctions', 3)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_nodal_coarsen', 5)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_P_max', 1)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_truncfactor', 0.9)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_cycle_type', 'W')
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_agg_nl', 5)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_max_iter', 10)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_agg_num_paths',2)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_strong_threshold',0.8)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_print_statistics', 1)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_print_debug', 1)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_vec_interp_smooth',True)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_interp_type','classical')
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_interp_type','classical')
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_vec_interp_smooth',True)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_vec_interp_refine',True)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_grid_sweeps_all', 2)
+        # PETSc.Options().setValue('-pc_type', 'composite')
+        # PETSc.Options().setValue('-pc_composite_pcs', 'jacobi,hypre')
+        # PETSc.Options().setValue('-sub_1_pc_hypre_type', 'boomeramg')
+        # PETSc.Options().setValue('-sub_1_pc_hypre_boomeramg_print_statistics', 1)
+        # PETSc.Options().setValue('-pc_hypre_boomeramg_nodal_coarsen',6)
+        # PETSc.Options().setValue('-sub_3_pc_hypre_boomeramg_vec_interp_variant',3)
+        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_type', 'cg')
+        # PETSc.Options().setValue('-pc_composite_type','multiplicative')
+        # PETSc.Options().setValue('-sub_2_pc_gamg_repartition', True)
+        # PETSc.Options().setValue('-sub_2_pc_gamg_aggressive_coarsening', 10)
+        # PETSc.Options().setValue('-help', True)
+        # PETSc.Options().setValue('-help', True)
+        # PETSc.Options().setValue('-info', True)
+
+
+        # PETSc.Options().setValue('-mg_coars_pc_type','svd')
+        # PETSc.Options().setValue('-sub_3_pc_hypre_type','boomerang')
+        # PETSc.Options().setValue('-pc_gamg_agg_nsmooths',0)
+
+        print("Translating matrix into Petsc objects")
         RHS_petsc = PETSc.Vec().create()
         RHS_petsc.setSizes(RHS.shape[0])
-        RHS_petsc.setType('seq')  # Use 'mpi' for parallel computing
+        RHS_petsc.setType('seq') 
 
+        # RHS[:] = 0.0
         RHS_petsc.setArray(RHS)
 
         # Create a PETSc Mat for the sparse matrix A
         LHS_matrix_petsc = PETSc.Mat().createAIJ(size=LHS_matrix.shape, csr=(LHS_matrix.indptr, LHS_matrix.indices, LHS_matrix.data))
         LHS_matrix_petsc.setBlockSizes(3, 3)
         LHS_matrix_petsc.setUp()
+        # print(dir(LHS_matrix_petsc))
+        # LHS_matrix_petsc.NullSpaceCreateRigidBody()
+        # LHS_matrix_petsc.setNearNullSpace()
+        petsc_end_time = time.time()
+        minutes, seconds, milliseconds = format_elapsed_time(petsc_end_time - linear_system_end_time)
+        print(f"Time taken: {minutes} minutes, {seconds} seconds, {milliseconds} milliseconds")
+        print(" ")
 
-        # jacobi_preconditioner = PETSc.PC().create(comm=PETSc.COMM_WORLD)
-        # jacobi_preconditioner.setType(PETSc.PC.Type.JACOBI)
+        petsc_solution = RHS_petsc.duplicate()
 
-        # multigrid_preconditioner = PETSc.PC().create(comm=PETSc.COMM_WORLD)
-        # multigrid_preconditioner.setType(PETSc.PC.Type.GAMG)
+        petsc_solution.setValues(get_index_set(N_i, N_j, 0,0, 'ux', include_boundaries = True), v_x.flatten())
+        petsc_solution.setValues(get_index_set(N_i, N_j, 0,0, 'uy', include_boundaries = True), v_y.flatten())
+        petsc_solution.setValues(get_index_set(N_i, N_j, 0,0, 'remodelling', include_boundaries = True), remodelling.flatten())
 
-        # preconditioner = PETSc.PC().create()
-        # preconditioner.setType(PETSc.PC.Type.COMPOSITE)
-        # print(dir(preconditioner))
-        # preconditioner.addCompositePCType(PETSc.PC.Type.JACOBI)
-        # preconditioner.addCompositePCType(PETSc.PC.Type.GAMG)
-        # preconditioner.getCompositePC().addPC(jacobi_preconditioner)
-        # preconditioner.getCompositePC().addPC(multigrid_preconditioner)
-
-        # Create the PETSc KSP solver
         solver = PETSc.KSP().create()
         solver.setOperators(LHS_matrix_petsc)
         # solver.setType('bcgs')
-        # solver.setType('tfqmr')
-        solver.getPC().setType(PETSc.PC.Type.COMPOSITE)
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.JACOBI)
-        solver.getPC().addCompositePCType(PETSc.PC.Type.BJACOBI)
-        solver.getPC().addCompositePCType(PETSc.PC.Type.ILU)
-        solver.getPC().addCompositePCType(PETSc.PC.Type.GAMG)
-        # solver.getPC().setType(PETSc.PC.Type.JACOBI)  # Use LU decomposition as a preconditioner
-        # solver.getPC().setType(PETSc.PC.Type.BJACOBI)  # Use LU decomposition as a preconditioner
-        # solver.getPC().setType(PETSc.PC.Type.EISENSTAT)  # Use LU decomposition as a preconditioner
-        # solver.getPC().setType(PETSc.PC.Type.SOR)  # Use LU decomposition as a preconditioner
-        # solver.getPC().setType(PETSc.PC.Type.GAMG)  # Use LU decomposition as a preconditioner
-        # dir(solver)
-        # solver.setPC(preconditioner)  # Use LU decomposition as a preconditioner
-        # solver.addCompositePCType(PETSc.PC.Type.BJACOBI)
-        # solver.addCompositePCType(PETSc.PC.Type.GAMG)
-        # import pdb; pdb.set_trace()
-        # solver.setFromOptions()
-        # solver.setGMRESRestart(2)
-        # solver.getPC().setFactorLevels(1)
-        print(dir(PETSc.KSP.NormType))
-        solver.setNormType(PETSc.KSP.NormType.NORM_UNPRECONDITIONED)
-        # print(dir(solver.getPC()))
 
-        # Solve the linear system
-        petsc_solution = RHS_petsc.duplicate()
+        # solver.getPC().setType(PETSc.PC.Type.HYPRE)
+        # solver.getPC().setType(PETSc.PC.Type.COMPOSITE)
+
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.JACOBI) 
+        # I think this ones helps with the fact that some entries are
+        # orders of magnited bigger than others, it's a form of diagonal scaling
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.BJACOBI) 
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.SOR) 
         
+        # This is a standard preconditioner and it would use only that if we were not
+        # specifiying other ones also. My understanding is that it somehow
+        # makes the matrix "more diagonal"
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.ILU)
+
+        # This one makes a big difference. It's related to solving the system
+        # on a coarse grid first and then refines, but doing that within each iteration
+        # I am not sure how it works in detail and we should find the appropriate literature on it
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.GAMG)
+        # solver.getPC().addCompositePCType(PETSc.PC.Type.HYPRE)
+
+        # potentially useful leftovers from debugging:
+        # print(dir(solver))
+        # print(dir(solver.getPC()))
+        # solver.setGMRESRestart(5)
+        # solver.setTolerances(divtol = 1e100, max_it=500)
+        # solver.setTolerances(divtol = 1e100, max_it=2000)
+        solver.setTolerances(divtol = 1e100, max_it=20000)
+        # solver.setTolerances(rtol = 1e-9, max_it=100)
+        # solver.setTolerances(max_it=500)
+        # solver.getPC().setFactorLevels(1)
+        # possible_options['-help'] = True
+        # solver.setFromOptions(possible_options)
+        solver.setFromOptions()
+        # solver.getPC().setGAMGLevels(20)
+        # solver.getPC().setMGLevels(20)
+        # i_meshgrid, j_meshgrid = np.meshgrid(np.arange(N_i, dtype = np.int32), np.arange(N_j, dtype = np.int32), indexing='ij')
+        # coordinates = np.vstack((i_meshgrid.flatten(),j_meshgrid.flatten()))
+        # coordinates = np.repeat(coordinates,3, axis = 1).transpose()
+        # print(coordinates)
+
+        # solver.getPC().setCoordinates(coordinates)
+
+        # i_meshgrid_x, j_meshgrid_x = np.meshgrid(np.arange(1,N_i-1, dtype = np.int32), np.arange(N_j, dtype = np.int32), indexing='ij')
+        # next_xindices = (N_j * (i_meshgrid_x + 1) + (j_meshgrid_x)).flatten()
+        # previous_xindices = (N_j * (i_meshgrid_x - 1) + (j_meshgrid_x)).flatten()
+        # central_x_indices = np.arange(len(next_xindices))
+
+        # i_meshgrid_y, j_meshgrid_y = np.meshgrid(np.arange(N_i, dtype = np.int32), np.arange(1,N_j-1, dtype = np.int32), indexing='ij')
+        # next_yindices = (N_j * (i_meshgrid_y) + (j_meshgrid_y + 1)).flatten()
+        # previous_yindices = (N_j * (i_meshgrid_y) + (j_meshgrid_y - 1)).flatten()
+        # central_y_indices = np.arange(len(next_yindices)) + len(central_x_indices)
+        
+        # number_of_edges = len(central_x_indices) + len(central_y_indices)
+        # top_indices = np.arange(N_j)
+        # next_x_indices = 3*N_j
+
+        # gradient_matrix = scipy.sparse.lil_matrix((number_of_edges, N_i*(N_j)), dtype=float)
+        # gradient_matrix[central_x_indices,next_xindices] = 1/2
+        # gradient_matrix[central_x_indices,previous_xindices] = -1/2
+        # gradient_matrix[central_y_indices,next_yindices] = 1/2
+        # gradient_matrix[central_y_indices,previous_yindices] = -1/2
+        
+        
+        # gradient_matrix = gradient_matrix.tocsr()
+
+        # gradient_matrix_petsc = PETSc.Mat().createAIJ(size=gradient_matrix.shape, csr=(gradient_matrix.indptr, gradient_matrix.indices, gradient_matrix.data))
+
+        # solver.getPC().setHYPREDiscreteGradient(gradient_matrix_petsc)
+        # use the real norm of the residual rather than the preconditioned one
+        solver.setNormType(PETSc.KSP.NormType.NORM_UNPRECONDITIONED)
+        
+        # tell it that the initial guess may be intentionally non-zero
+        solver.setInitialGuessNonzero(True)  # Specify that the initial guess is nonzero
+
+        # solver.setFromOpions()
+        # Solve the linear system
         print("starting solve")
         start_time = time.time()
         solver.setMonitor(lambda ksp, its, rnorm: print("Iteration:", its, "  Residual norm:", rnorm))
-        # solver.setMonitor(PETSc.DefaultMonitor)
-        # solver.setNormType(PETSc.KSPSetNormType)
-        # solver.setMonitorFrequency(1)
-        # solver.setTolerances(rtol = 1e-9, max_it=1000)
-        # print(dir(solver.setTolerances))
-        print(dir(solver))
-
-
         solver.solve(RHS_petsc, petsc_solution)
-        print(solver.getConvergedReason())
 
+        print(" ")
+        if solver.converged:
+            print('The solver converged sucessfully')
+        else:
+            print('the solver has not actually converged, the result will be incorrect or inaccurate')
+ 
         final_residual_norm = solver.getResidualNorm()
 
-        print("Final Residual Norm:", final_residual_norm)
+        print("Final Residual norm returned by solver:", final_residual_norm)
+        print(" ")
         # Get the solution as a NumPy array
         system_solution = petsc_solution.getArray()
 
-        # print("preconditioner made ")
-        # def callback(xk):
-        #    logger.info(f"Residual norm: {np.linalg.norm(RHS_scaled - LHS_matrix_scaled.dot(xk))}")
-
-        # system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
-        # system_solution, solver_log = scipy.sparse.linalg.gmres(LHS_matrix.tocsr(), RHS, M=preconditioner)       
-        # system_solution, solver_log = scipy.sparse.linalg.qmr(LHS_matrix.tocsr(), RHS, callback = callback)       
-        # system_solution_scaled, solver_log = scipy.sparse.linalg.bicgstab(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
-        # system_solution_scaled, solver_log = scipy.sparse.linalg.tfqmr(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
-        # system_solution_scaled, solver_log = scipy.sparse.linalg.gmres(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
-        # system_solution_scaled, solver_log = scipy.sparse.linalg.lgmres(LHS_matrix_scaled.tocsr(), RHS_scaled, M=preconditioner, callback = callback)       
-        # system_solution_scaled, solver_log = scipy.sparse.linalg.gmres(LHS_matrix_scaled.tocsr(), RHS_scaled, callback = callback)       
-        # system_solution = scaling_matrix @ system_solution_scaled
-        # system_solution, solver_log = scipy.sparse.linalg.gmres(LHS_matrix.tocsr(), RHS, callback = callback)       
-        # full_solution = scipy.sparse.linalg.lsmr(LHS_matrix.tocsr(), RHS)       
-        # system_solution = full_solution[0] 
-        # solver_log = full_solution[1]
         end_time = time.time()
-        print('final residual norm')
-        print(np.linalg.norm(LHS_matrix_old @ system_solution - RHS_old)/np.linalg.norm(RHS_old))
-        print(np.linalg.norm(LHS_matrix_old @ system_solution - RHS_old)/np.linalg.norm(LHS_matrix_old @ np.zeros_like(system_solution) - RHS_old))
-        print(np.linalg.norm(LHS_matrix_old @ system_solution - RHS_old))
-        elapsed_time_seconds = end_time - start_time
-        elapsed_minutes = int(elapsed_time_seconds // 60)
-        elapsed_seconds = int(elapsed_time_seconds % 60)
-
-        print("finished optical flow caclulation")
-        print(f"Time taken by the solver: {elapsed_minutes} minutes and {elapsed_seconds} seconds")
-        print('the solver log is')
-        # print(solver_log)
+        print('Final residual norm independently calculated:')
+        print(np.linalg.norm(LHS_matrix @ system_solution - RHS)/np.linalg.norm(RHS))
+        
+        minutes, seconds, milliseconds = format_elapsed_time(end_time - start_time)
+        print(f"Elapsed time for solve: {minutes} minutes, {seconds} seconds, {milliseconds} milliseconds")
 
         v_x[:] = np.reshape( system_solution[get_index_set(N_i, N_j, 0, 0, 'ux',include_boundaries=True)] , (N_i,N_j))
         v_y[:] = np.reshape( system_solution[get_index_set(N_i, N_j, 0, 0, 'uy',include_boundaries=True)] , (N_i,N_j))
         remodelling[:] = np.reshape( system_solution[get_index_set(N_i, N_j, 0, 0, 'remodelling',include_boundaries=True)] , (N_i,N_j))
-
+        
+        #this mainly takes care of the corners
         apply_constant_boundary_condition(v_x)
         apply_constant_boundary_condition(v_y)
         apply_constant_boundary_condition(remodelling)
@@ -1122,7 +1272,49 @@ def variational_optical_flow(movie,
     all_v_y *= delta_x/delta_t
     all_speed = np.sqrt(all_v_x**2+all_v_y**2)
 
-    return all_v_x, all_v_y, all_speed, all_remodelling
+    result = dict()
+    result['v_x'] = all_v_x
+    result['v_y'] = all_v_y
+    result['speed'] = all_speed
+    result['remodelling'] = all_remodelling
+    result['original_data'] = movie
+    result['delta_x'] = delta_x
+    result['delta_t'] = delta_t
+    result['blurred_data'] = movie_to_analyse
+
+    print('')
+    print('optical flow calculations finished')
+    print('') 
+    return result
+
+def format_elapsed_time(time_difference):
+    """Split the time difference into minutes, seconds, and milliseconds.
+    
+    Parameters:
+    -----------
+    
+    time_difference : float
+        must be a difference from consecutive calls of 'time.time()'
+        
+    Returns:
+    --------
+    
+    minutes : int
+        the number of minutes that passed.
+        
+    seconds : int
+        the number of seconds that passed.
+    
+    milliseconds : int
+        the number of milliseconds that passed.
+    """
+
+    minutes = int(time_difference // 60)
+    seconds = int(time_difference % 60)
+    milliseconds = int((time_difference - int(time_difference)) * 1000)
+    
+    return minutes, seconds, milliseconds
+
 
 def get_index_set(N_i, N_j,i_offset, j_offset,quantity, include_boundaries = False):
     '''Get an index set in our LHS matrix or RHS vector for variational aptical flow.
@@ -1173,7 +1365,7 @@ def get_index_set(N_i, N_j,i_offset, j_offset,quantity, include_boundaries = Fal
         j_start = 1
         j_end = N_j-1
     
-    i_meshgrid, j_meshgrid = np.meshgrid(np.arange(i_start, i_end), np.arange(j_start, j_end), indexing='ij')
+    i_meshgrid, j_meshgrid = np.meshgrid(np.arange(i_start, i_end, dtype = np.int32), np.arange(j_start, j_end, dtype = np.int32), indexing='ij')
     if quantity == 'ux':
         quantity_offset = 0
     elif quantity == 'uy':
@@ -1201,7 +1393,7 @@ def apply_constant_boundary_condition(image = np.zeros((10,10),dtype = float)):
     image[:,0] = image[:,2]
     image[:,-1] = image[:,-3]
 
-def conduct_variational_optical_flow(movie, 
+def conduct_variational_optical_flow_deprecated(movie, 
                                      delta_x = 1.0,
                                      delta_t = 1.0,
                                      speed_alpha = 1.0,
@@ -1216,7 +1408,7 @@ def conduct_variational_optical_flow(movie,
                                      tolerance = 1e-10,
                                      include_remodelling = True,
                                      use_liu_shen = False):
-    """Conduct optical flow as in Vig et al. Biophysical Journal 110, 1469–1475, 2016.
+    """Conduct optical using deprecated functions.
     
     Parameters:
     -----------
@@ -1285,7 +1477,7 @@ def conduct_variational_optical_flow(movie,
     if use_liu_shen:
         optical_flow_method = liu_shen_optical_flow_jit
     else: 
-        optical_flow_method = variational_optical_flow
+        raise ValueError("I can currently only really do this for the liu shen jitted method")
 
     initial_v_x = np.full((movie.shape[1],movie.shape[2]),float(v_x_guess)) 
     initial_v_y = np.full((movie.shape[1],movie.shape[2]),float(v_y_guess)) 
@@ -1751,7 +1943,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['speed']),np.max(flow_result['speed']))
-        # colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
+        colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('Motion speed [$\mathrm{\mu m}$/s]')
 
         plt.subplot(233)
@@ -1759,13 +1951,14 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['remodelling']),np.max(flow_result['remodelling']))
-        # colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
+        colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('Net remodelling')
 
         plt.subplot(234)
         costum_imshow(flow_result['v_x'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['v_x']),np.max(flow_result['v_x']))
+        colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('x velocity [$\mathrm{\mu m}$/s]')
 
         plt.subplot(235)
@@ -1773,6 +1966,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['v_y']),np.max(flow_result['v_y']))
+        colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('y velocity [$\mathrm{\mu m}$/s]')
 
     ani = FuncAnimation(fig, animate, frames=original_data.shape[0]-1)
