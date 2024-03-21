@@ -417,10 +417,12 @@ def liu_shen_optical_flow_jit(movie,
                              delta_x = 1.0,
                              delta_t = 1.0,
                              alpha=100,
+                              remodelling_alpha = 1.0,
                              initial_v_x=np.zeros((10,10),dtype =float),
                              initial_v_y= np.zeros((10,10),dtype =float),
                              initial_remodelling=np.zeros((10,10),dtype =float),
-                             iterations = 10,
+                             max_iterations = 10,
+                              tolerance = 1e-9,
                              include_remodelling = True):
     """Perform variational optical flow on the movie.
     This method is experimental and has not been validated.
@@ -476,6 +478,7 @@ def liu_shen_optical_flow_jit(movie,
     number_of_Xpixels= movie.shape[1]
     number_of_Ypixels= movie.shape[2]
     
+    iterations = max_iterations
     all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2), dtype = float)#previous 0.0001*0.019550342130987292
     all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2), dtype = float)
     all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels+2,number_of_Ypixels+2),dtype = float)   
@@ -656,7 +659,7 @@ def liu_shen_optical_flow_jit(movie,
     all_v_x *= delta_x/delta_t
     all_v_y *= delta_x/delta_t
     all_speed = np.sqrt(all_v_x**2+all_v_y**2)
-    return all_v_x, all_v_y, all_speed, all_remodelling
+    return all_v_x, all_v_y, all_speed, all_remodelling, iteration_index
 
 
 @njit
@@ -1157,7 +1160,7 @@ def conduct_variational_optical_flow(movie,
     result['original_data'] = movie
     result['delta_x'] = delta_x
     result['delta_t'] = delta_t
-    result['blurred_data'] = all_remodelling
+    result['blurred_data'] = movie_to_analyse
     result['max_iterations'] = max_iterations
     result['total_iterations'] = total_iterations
     
