@@ -114,6 +114,10 @@ def reproduce_matlab_example_vortex_pair():
     first_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_1.tif')) 
     second_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_2.tif')) 
 
+    print("the mean intensity difference of the two frames is")
+    print(np.mean(np.abs(first_frame - second_frame)))
+    print("the difference of mean intensities of the two frames is")
+    print(np.mean(first_frame) - np.mean(second_frame))
     movie = np.stack((first_frame, second_frame))
     
     delta_x = 1.0
@@ -131,13 +135,13 @@ def reproduce_matlab_example_vortex_pair():
     result = optical_flow.variational_optical_flow(movie,
                                                            delta_x = 1.0,
                                                            delta_t = 1.0,
-                                                           speed_alpha=10000,
-                                                           remodelling_alpha=1e10,
+                                                           speed_alpha=2e4,
+                                                           remodelling_alpha=1000,
                                                            initial_v_x =0.015,
                                                            initial_v_y =0.015,
                                                         #    remodelling_guess=0.05,
     # )
-                                                           smoothing_sigma = 0.62*6)
+                                                           smoothing_sigma = 0.62*4)
     
     optical_flow.make_velocity_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
@@ -153,15 +157,20 @@ def reproduce_matlab_example_vortex_pair():
                                              arrow_scale = 0.05,
                                              arrow_boxsize = 20)
 
-    print('mean and max final v_x are')
+    print('mean, max and min final v_x are')
     print(np.mean(result['v_x']))
     print(np.max(result['v_x']))
-    print('mean and max final v_y are')
+    print(np.min(result['v_x']))
+
+    print('mean, max and min final v_y are')
     print(np.mean(result['v_y']))
     print(np.max(result['v_y']))
-    print('mean and max final remodelling are')
+    print(np.min(result['v_y']))
+
+    print('mean, max and min final remodelling are')
     print(np.mean(result['remodelling']))
     print(np.max(result['remodelling']))
+    print(np.min(result['remodelling']))
  
     
 ####

@@ -1059,19 +1059,26 @@ def variational_optical_flow(movie,
         # print(nullspace)
 
         # a= 1/0
-        PETSc.Options().setValue('-ksp_type','richardson')
-        # PETSc.Options().setValue('-ksp_type','bcgs')
+        # PETSc.Options().setValue('-ksp_type','richardson')
+        PETSc.Options().setValue('-ksp_type','bcgs')
+        # PETSc.Options().setValue('-ksp_type','lsqr')
         # PETSc.Options().setValue('-ksp_gmres_restart',1000)
-        PETSc.Options().setValue('-ksp_divtol',1e10)
+        # PETSc.Options().setValue('-ksp_divtol',1e10)
+        # PETSc.Options().setValue('-ksp_monitor_cancel',True)
         # PETSc.Options().setValue('-ksp_diagonal_scale',True)
         # PETSc.Options().setValue('-ksp_type','richardson')
         # PETSc.Options().setValue('-pc_factor_levels',50)
         # PETSc.Options().setValue('-ksp_error_if_not_converged',1)
         # PETSc.Options().setValue('-ksp_gmres_modifiedgramschmidt',1)
-        PETSc.Options().setValue('-pc_type', 'bjacobi')
+        # PETSc.Options().setValue('-pc_type', 'bjacobi')
         # PETSc.Options().setValue('-pc_type', 'hypre')
-        # PETSc.Options().setValue('-pc_type', 'composite')
+        # PETSc.Options().setValue('-pc_type', 'ilu')
+        PETSc.Options().setValue('-pc_type', 'composite')
+        # PETSc.Options().setValue('-pc_composite_pcs', 'hypre,ilu,bjacobi')
+        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
+        PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
         # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,gamg')
+        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi')
         # PETSc.Options().setValue('-pc_type', 'gamg')
         # PETSc.Options().setValue('-sub_2_pc_gamg_type', 'classical')
         # PETSc.Options().setValue('-sub_2_pc_gamg_esteig_ksp_type', 'chebyshev')
@@ -1155,6 +1162,9 @@ def variational_optical_flow(movie,
         petsc_solution.setValues(get_index_set(N_i, N_j, 0,0, 'remodelling', include_boundaries = True), remodelling.flatten())
 
         solver = PETSc.KSP().create()
+        # P_matrix = LHS_matrix.transpose() @ LHS_matrix
+        # P_petsc = PETSc.Mat().createAIJ(size=P_matrix.shape, csr=(P_matrix.indptr, P_matrix.indices, P_matrix.data))
+        # solver.setOperators(LHS_matrix_petsc, P_petsc)
         solver.setOperators(LHS_matrix_petsc)
         # solver.setType('bcgs')
 
@@ -1184,8 +1194,8 @@ def variational_optical_flow(movie,
         # solver.setGMRESRestart(5)
         # solver.setTolerances(divtol = 1e100, max_it=500)
         # solver.setTolerances(divtol = 1e100, max_it=2000)
-        solver.setTolerances(divtol = 1e100, max_it=20000)
-        # solver.setTolerances(rtol = 1e-9, max_it=100)
+        # solver.setTolerances(divtol = 1e100, rtol = 1e-9, max_it=20000)
+        solver.setTolerances(rtol = 1e-6, max_it=100)
         # solver.setTolerances(max_it=500)
         # solver.getPC().setFactorLevels(1)
         # possible_options['-help'] = True
@@ -1251,6 +1261,8 @@ def variational_optical_flow(movie,
         print(" ")
         # Get the solution as a NumPy array
         system_solution = petsc_solution.getArray()
+        # system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
+
 
         end_time = time.time()
         print('Final residual norm independently calculated:')
