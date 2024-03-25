@@ -278,8 +278,8 @@ def perform_tuning_variation_on_real_data():
     # movie = movie[3:5,:,:]
     movie = movie[3:5,:,:]
  
-    result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(1,1e5,15),
-                                                           remodelling_alpha_values = np.logspace(1,1e5,15),
+    result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(0,5,15),
+                                                           remodelling_alpha_values = np.logspace(0,5,15),
                                                            filename = os.path.join(os.path.dirname(__file__), 'output',
                                                                                    'real_data_regularisation_variation'),
                                                            smoothing_sigma = 5)
