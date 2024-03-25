@@ -782,9 +782,14 @@ def variational_optical_flow(movie,
 
         previous_frame = previous_frame_w_border[1:-1,1:-1]
 
-        all_v_x[frame_index -1 ,:,:] = initial_v_x*delta_t/delta_x
-        all_v_y[frame_index -1 ,:,:] = initial_v_y*delta_t/delta_x
-        all_remodelling[frame_index -1 ,:,:] = initial_remodelling
+        if frame_index ==1:
+            all_v_x[frame_index -1 ,:,:] = initial_v_x*delta_t/delta_x
+            all_v_y[frame_index -1 ,:,:] = initial_v_y*delta_t/delta_x
+            all_remodelling[frame_index -1 ,:,:] = initial_remodelling
+        else:
+            all_v_x[frame_index -1 ,:,:] = all_v_x[frame_index -2 ,:,:]
+            all_v_y[frame_index -1 ,:,:] = all_v_y[frame_index -2 ,:,:]
+            all_remodelling[frame_index -1 ,:,:] = all_remodelling[frame_index -2 ,:,:]
 
         v_x = all_v_x[frame_index-1,:,:]
         v_y = all_v_y[frame_index-1,:,:]
@@ -1076,7 +1081,9 @@ def variational_optical_flow(movie,
         PETSc.Options().setValue('-pc_type', 'composite')
         # PETSc.Options().setValue('-pc_composite_pcs', 'hypre,ilu,bjacobi')
         # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
+        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
         PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
+        PETSc.Options().setValue('-ksp_initial_guess_nonzero', True)
         # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,gamg')
         # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi')
         # PETSc.Options().setValue('-pc_type', 'gamg')
@@ -1240,7 +1247,7 @@ def variational_optical_flow(movie,
         solver.setNormType(PETSc.KSP.NormType.NORM_UNPRECONDITIONED)
         
         # tell it that the initial guess may be intentionally non-zero
-        solver.setInitialGuessNonzero(True)  # Specify that the initial guess is nonzero
+        # solver.setInitialGuessNonzero(True)  # Specify that the initial guess is nonzero
 
         # solver.setFromOpions()
         # Solve the linear system
@@ -1293,6 +1300,7 @@ def variational_optical_flow(movie,
     result['delta_x'] = delta_x
     result['delta_t'] = delta_t
     result['blurred_data'] = movie_to_analyse
+    result['converged'] = solver.converged
 
     print('')
     print('optical flow calculations finished')
@@ -1731,7 +1739,7 @@ def subsample_velocities_for_visualisation(flow_result, iteration = None, arrow_
 
  
 def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', 
-                                autoscale = False, arrow_color = 'magenta', v_min = 0.0, v_max = 255.0):   
+                                autoscale = False, arrow_color = 'magenta', arrow_width = None, v_min = 0.0, v_max = 255.0):   
     """Plot a optical flow velocity result
     
     Parameters :
@@ -1755,6 +1763,9 @@ def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_s
     arrow_color : string
         maptlotlib name of the color of the arrows
         
+    arrow_width : float
+        The width of the arrow in secret units
+
     autoscale : bool
         if True, the image will be displayed using matplotlib's autoscaling.
         Otherwise, the image will be displayed using the scale (v_min,v_max)
@@ -1773,7 +1784,7 @@ def make_velocity_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_s
     def animate(i): 
         plt.cla()
         costum_imshow(movie[i+1,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale, v_min = v_min, v_max = v_max)
-        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale, width = arrow_width)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
         if i <1:
             plt.tight_layout()#make sure all lables fit in the frame
     ani = FuncAnimation(fig, animate, frames=movie.shape[0]-1)
@@ -1903,7 +1914,8 @@ def make_convergence_plots(result, filename_start):
     ani = FuncAnimation(fig, animate, frames=result['speed_steps'].shape[1])
     ani.save(filename_start + 'compound_figures.mp4',dpi=300)
  
-def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0, cmap = 'gray_r', 
+def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scale = 1.0,
+                             arrow_width = None, cmap = 'gray_r', 
                                 autoscale = False, arrow_color = 'magenta', v_min = 0.0, v_max = 255.0):   
     """Plot a optical flow velocity result. In addition to the raw data and arrows, it also includes the 
     speed and remodelling.
@@ -1923,6 +1935,9 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
     arrow_scale : float
         scaling paramter to change the length of arrows
         
+    arrow_width : float
+        The width of the arrow in secret units
+
     cmap : string
         name of a matplotlib colormap to be used
         
@@ -1940,6 +1955,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         pixels equal to or above this image intensity will be black in inverted grayscale
     """
     original_data = flow_result['original_data']
+    blurred_data = flow_result['blurred_data']
    
     x_positions, y_positions, v_x, v_y = subsample_velocities_for_visualisation(flow_result, arrow_boxsize = arrow_boxsize)
 
@@ -1948,9 +1964,15 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         plt.clf()
         plt.subplot(231)
         costum_imshow(original_data[i,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale, v_min = v_min, v_max = v_max)
-        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale, width = arrow_width)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        plt.title('Original data')
         
         plt.subplot(232)
+        costum_imshow(blurred_data[i,:,:], delta_x = flow_result['delta_x'], cmap = cmap, autoscale=autoscale, v_min = v_min, v_max = v_max)
+        plt.quiver(y_positions, x_positions, v_y[i,:,:], -v_x[i,:,:], color = arrow_color,headwidth=5, scale = 1.0/arrow_scale, width = arrow_width)#quiver([X,Y],U,V,[C])#arrow is in wrong direction because matplt and quiver have different coordanites
+        plt.title('Blurred')
+
+        plt.subplot(233)
         costum_imshow(flow_result['speed'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'viridis')
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
@@ -1958,7 +1980,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('Motion speed [$\mathrm{\mu m}$/s]')
 
-        plt.subplot(233)
+        plt.subplot(234)
         costum_imshow(flow_result['remodelling'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
@@ -1966,14 +1988,14 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('Net remodelling')
 
-        plt.subplot(234)
+        plt.subplot(235)
         costum_imshow(flow_result['v_x'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['v_x']),np.max(flow_result['v_x']))
         colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
         plt.title('x velocity [$\mathrm{\mu m}$/s]')
 
-        plt.subplot(235)
+        plt.subplot(236)
         costum_imshow(flow_result['v_y'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
@@ -1984,3 +2006,172 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
     ani = FuncAnimation(fig, animate, frames=original_data.shape[0]-1)
     #ani.save('Visualizing Velocity.gif')
     ani.save(filename,dpi=600) 
+    
+def vary_regularisation(movie, 
+                            speed_alpha_values = np.arange(500,2000, 500),
+                            remodelling_alpha_values = np.arange(500,2000, 500),
+                            filename = None,
+                            **kwargs):
+    """ Vary both regularisation parameters and keep the data to generate heatmaps
+    
+    Parameters:
+    -----------
+    
+    movie : numpy array
+        the movie to be analysed.
+        
+    speed_alpha_values : numpy array
+        a list of speed_alpha values to be considered
+    
+    remodelling_alpha_values : numpy array
+        a list of remodelling values to be considered
+
+    
+    filename : string
+        if provided, save the resulting dictionary under this filename
+        
+    kwargs : dict?
+        all remaining arguments will be passed to variational_optical_flow
+        
+    Returns:
+    --------
+        
+    result_dict : dictionary
+        keys are 'speed_means', 'speed_variances', 'remodelling_means', 'remodelling_variances'
+    
+    """
+        
+    speed_means = np.zeros((len(speed_alpha_values),len(remodelling_alpha_values)))
+    speed_variances = np.zeros_like(speed_means)
+    remodelling_means = np.zeros_like(speed_means)
+    remodelling_variances = np.zeros_like(speed_means)
+    converged = np.zeros_like(speed_means, dtype = bool)
+    
+    for speed_alpha_index, speed_alpha in enumerate(speed_alpha_values):
+        for remodelling_alpha_index, remodelling_alpha in enumerate(remodelling_alpha_values):
+            result = variational_optical_flow( movie,
+                                               speed_alpha=speed_alpha,
+                                               remodelling_alpha=remodelling_alpha,
+                                               **kwargs)
+            speed_means[speed_alpha_index, remodelling_alpha_index] = np.mean(result['speed'])
+            speed_variances[speed_alpha_index, remodelling_alpha_index] = np.var(result['speed'])
+            remodelling_means[speed_alpha_index, remodelling_alpha_index] = np.mean(result['remodelling'])
+            remodelling_variances[speed_alpha_index, remodelling_alpha_index] = np.var(result['remodelling'])
+            converged[speed_alpha_index, remodelling_alpha_index] = result['converged']
+            
+    result_dict = {}
+    result_dict['speed_alpha_values'] = speed_alpha_values
+    result_dict['remodelling_alpha_values'] = remodelling_alpha_values
+    result_dict['speed_means'] = speed_means
+    result_dict['speed_variances'] = speed_variances
+    result_dict['remodelling_means'] = remodelling_means
+    result_dict['remodelling_variances'] = remodelling_variances
+    result_dict['converged'] = converged
+
+    if filename is not None:
+        np.save(filename, result_dict)
+
+    return result_dict
+
+def plot_regularisation_variation(variation_result, filename):
+    """Plot the results generated with the function vary_regularisation
+    
+    Parameters :
+    -----------
+    
+    variation_result : dictionary
+        as generated by the function vary_regularisation
+    
+    filename : string
+        where to save the file
+    """
+    
+    speed_alpha_values = variation_result['speed_alpha_values']
+    remodelling_alpha_values = variation_result['remodelling_alpha_values']
+    remodelling_alpha_grid, speed_alpha_grid = np.meshgrid(remodelling_alpha_values, speed_alpha_values)
+    aspect_ratio = (np.max(speed_alpha_values) - np.min(speed_alpha_values))/(
+        np.max(remodelling_alpha_values) - np.min(remodelling_alpha_values))
+
+    # v_min = 0.0
+    # v_max = 2.0
+    v_min = None
+    v_max = None
+
+    plt.figure(figsize = (6.5,4.5), constrained_layout = True)
+
+    # plt.subplot(231)
+    # plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['converged'], cmap='viridis')
+                #    vmin = 0, vmax = 1)
+    # plt.gca().set_aspect(aspect_ratio)
+    # plt.colorbar()
+    # plt.xlabel(r'$\alpha_{\mathrm{speed}}$')
+    # plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
+    # plt.xlabel(r'$\alpha$ for speed')
+    # plt.ylabel(r'$\alpha$ for remodelling')
+    # plt.title('convergence')
+
+
+    plt.subplot(221)
+    variation_result['speed_means'][np.logical_not(variation_result['converged'])] = np.nan
+    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_means'], cmap='viridis',
+                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+                #    vmin = v_min, vmax = v_max)
+    # plt.gca().set_aspect('equal', adjustable='box')
+    plt.gca().set_aspect(aspect_ratio)
+    plt.colorbar()
+    # plt.colorbar(shrink = 0.5)
+    # plt.colorbar(norm=matplotlib.colors.LogNorm())
+    plt.xlabel(r'$\alpha_{\mathrm{speed}}$')
+    plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
+    plt.title('Mean speed')
+
+    plt.subplot(222)
+    variation_result['speed_variances'][np.logical_not(variation_result['converged'])] = np.nan
+    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_variances'], cmap='viridis',
+                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+                #    vmin = v_min, vmax = v_max)
+    # plt.gca().set_aspect('equal', adjustable='box')
+    plt.gca().set_aspect(aspect_ratio)
+    plt.colorbar()
+    # plt.colorbar(shrink = 0.5)
+    # plt.colorbar(norm=matplotlib.colors.LogNorm())
+    plt.xlabel(r'$\alpha_{\mathrm{speed}}$')
+    plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
+    # plt.xlabel(r'$\alpha$ for speed')
+    # plt.ylabel(r'$\alpha$ for remodelling')
+    plt.title('Speed variance')
+
+    plt.subplot(223)
+    variation_result['remodelling_means'][np.logical_not(variation_result['converged'])] = np.nan
+    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_means'], cmap='viridis',
+                #    vmin = v_min, vmax = v_max)
+                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+    # plt.gca().set_aspect('equal', adjustable='box')
+    plt.gca().set_aspect(aspect_ratio)
+    plt.colorbar()
+    # plt.colorbar(norm=matplotlib.colors.LogNorm())
+    # plt.colorbar(shrink = 0.5)
+    plt.xlabel(r'$\alpha_{\mathrm{speed}}$')
+    plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
+    # plt.xlabel(r'$\alpha$ for speed')
+    # plt.ylabel(r'$\alpha$ for remodelling')
+    plt.title('Mean remodelling')
+
+    plt.subplot(224)
+    variation_result['remodelling_variances'][np.logical_not(variation_result['converged'])] = np.nan
+    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_variances'], cmap='viridis',
+                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+                #    vmin = v_min, vmax = v_max)
+    # plt.gca().set_aspect('equal', adjustable='box')
+    plt.gca().set_aspect(aspect_ratio)
+    plt.colorbar()
+    # plt.colorbar(shrink = 0.5)
+    # plt.colorbar(norm=matplotlib.colors.LogNorm())
+    plt.xlabel(r'$\alpha_{\mathrm{speed}}$')
+    plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
+    # plt.xlabel(r'$\alpha$ for speed')
+    # plt.ylabel(r'$\alpha$ for remodelling')
+    plt.title('Remodelling variance')
+    
+    plt.savefig(filename)
+ 

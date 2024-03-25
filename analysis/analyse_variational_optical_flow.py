@@ -110,7 +110,7 @@ def test_big_fake_data():
     print(np.mean(result['remodelling']))
     print(np.max(result['remodelling']))
  
-def reproduce_matlab_example_vortex_pair():
+def reproduce_matlab_example_vortex_pair(speed_regularisation=2e4, remodelling_regularisation=1e3):
     first_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_1.tif')) 
     second_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_2.tif')) 
 
@@ -135,8 +135,8 @@ def reproduce_matlab_example_vortex_pair():
     result = optical_flow.variational_optical_flow(movie,
                                                            delta_x = 1.0,
                                                            delta_t = 1.0,
-                                                           speed_alpha=2e4,
-                                                           remodelling_alpha=1000,
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
                                                            initial_v_x =0.015,
                                                            initial_v_y =0.015,
                                                         #    remodelling_guess=0.05,
@@ -145,17 +145,22 @@ def reproduce_matlab_example_vortex_pair():
     
     optical_flow.make_velocity_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
-                                                          'vortex_test.mp4'), 
+                                                          'vortex_test_' + str(speed_regularisation) + ' '
+                                                          + str(remodelling_regularisation) + '.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.05,
-                                             arrow_boxsize = 20)
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 20,
+                                             arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
 
     optical_flow.make_joint_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
-                                             'vortex_test_joint_result.mp4'), 
+                                             'vortex_test' + str(speed_regularisation) + ' '
+                                                          + str(remodelling_regularisation) + '_joint_result.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.05,
-                                             arrow_boxsize = 20)
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 20,
+                                             arrow_width = 0.005)
 
     print('mean, max and min final v_x are')
     print(np.mean(result['v_x']))
@@ -172,7 +177,118 @@ def reproduce_matlab_example_vortex_pair():
     print(np.max(result['remodelling']))
     print(np.min(result['remodelling']))
  
+def perform_tuning_variation_on_vortex_example():
+    first_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_1.tif')) 
+    second_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_2.tif')) 
+    movie = np.stack((first_frame, second_frame))
     
+    # result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.linspace(1000,100000,15),
+                                                        #    remodelling_alpha_values = np.linspace(100,10000,15),
+                                                        #    filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                #    'vortex_pair_regularisation_variation'),
+                                                        #    smoothing_sigma = 0.62*4)
+
+    result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','vortex_pair_regularisation_variation.npy'),allow_pickle='TRUE').item()
+    optical_flow.plot_regularisation_variation(result_for_plotting, os.path.join(os.path.dirname(__file__), 'output',
+                                                                                   'vortex_pair_regularisation_variation.pdf'))
+    
+    print(np.min(result_for_plotting["converged"]))
+    print(np.max(result_for_plotting["converged"]))
+    print(np.sum(result_for_plotting["converged"]))
+
+    
+def apply_to_bischoff_data(speed_regularisation=6000, remodelling_regularisation=6000):
+
+    movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
+    delta_x = 105/1024
+    delta_t = 10
+
+    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    def animate(i): 
+        # plt.cla()
+        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    # ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    # ani.save(os.path.join(os.path.dirname(__file__),'output','pretty_real_movie.mp4'),dpi=300) 
+ 
+    # iterations = 10000
+    # iteration_stepsize = 500
+    movie = movie[3:5,:,:]
+    # movie = movie[:10,:,:]
+    result = optical_flow.variational_optical_flow(movie,
+                                                           delta_x = delta_x,
+                                                           delta_t = delta_t,
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
+                                                        #    initial_v_x =0.015,
+                                                        #    initial_v_y =0.015,
+                                                        #    remodelling_guess=0.05,
+    # )
+                                                           smoothing_sigma = 5)
+    
+    optical_flow.make_velocity_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                                          'real_data_test_' + str(speed_regularisation) + ' '
+                                                          + str(remodelling_regularisation) + '.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 2.0,
+                                             arrow_boxsize = 50)
+                                            #  arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
+
+    optical_flow.make_joint_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                             'real_data_test' + str(speed_regularisation) + ' '
+                                                          + str(remodelling_regularisation) + '_joint_result.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 2.0,
+                                             arrow_boxsize = 50)
+                                            #  arrow_width = 0.005)
+
+    print('mean, max and min final v_x are')
+    print(np.mean(result['v_x']))
+    print(np.max(result['v_x']))
+    print(np.min(result['v_x']))
+
+    print('mean, max and min final v_y are')
+    print(np.mean(result['v_y']))
+    print(np.max(result['v_y']))
+    print(np.min(result['v_y']))
+
+    print('mean, max and min final remodelling are')
+    print(np.mean(result['remodelling']))
+    print(np.max(result['remodelling']))
+    print(np.min(result['remodelling']))
+ 
+def perform_tuning_variation_on_real_data():
+    movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
+    delta_x = 105/1024
+    delta_t = 10
+
+    # fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    # def animate(i): 
+        # plt.cla()
+        # optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    # ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    # ani.save(os.path.join(os.path.dirname(__file__),'output','pretty_real_movie.mp4'),dpi=300) 
+ 
+    # iterations = 10000
+    # iteration_stepsize = 500
+    # movie = movie[3:5,:,:]
+    movie = movie[3:5,:,:]
+ 
+    result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(1,1e5,15),
+                                                           remodelling_alpha_values = np.logspace(1,1e5,15),
+                                                           filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                   'real_data_regularisation_variation'),
+                                                           smoothing_sigma = 5)
+
+    result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_regularisation_variation.npy'),allow_pickle='TRUE').item()
+    optical_flow.plot_regularisation_variation(result_for_plotting, os.path.join(os.path.dirname(__file__), 'output',
+                                                                                   'real_data_regularisation_variation.pdf'))
+    
+
 ####
 #### These are functions I played around with while figuring things out. I may have changed the interface in optical_flow.py too much
 #### for these to still work, but I figured it might be good to keep them for now.
@@ -398,8 +514,12 @@ def identify_non_uniform_remodelling_rate():
 if __name__ == '__main__':
     # simle_test_with_data_on_boundary()
     # test_big_fake_data()
-    reproduce_matlab_example_vortex_pair()
+    # reproduce_matlab_example_vortex_pair(speed_regularisation=2e4, remodelling_regularisation=1e3)
+    # reproduce_matlab_example_vortex_pair(speed_regularisation=1e5, remodelling_regularisation=1e4)
+    # perform_tuning_variation_on_vortex_example()
 
+    apply_to_bischoff_data()
+    # perform_tuning_variation_on_real_data()
     # try_stopping_condition()
     # test_with_data_on_boundary()
     
