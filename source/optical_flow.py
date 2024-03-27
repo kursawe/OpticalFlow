@@ -2047,8 +2047,21 @@ def vary_regularisation(movie,
     remodelling_variances = np.zeros_like(speed_means)
     converged = np.zeros_like(speed_means, dtype = bool)
     
+    total_iteration_number = 0
     for speed_alpha_index, speed_alpha in enumerate(speed_alpha_values):
         for remodelling_alpha_index, remodelling_alpha in enumerate(remodelling_alpha_values):
+            total_iteration_number += 1
+            print(' ')
+            print('investigating the following speed_alpha and remodelling alpha_combination')
+            print(str(speed_alpha))
+            print(str(remodelling_alpha))
+            print(' ')
+            print('this is combination number:')
+            print(total_iteration_number)
+            print('out of')
+            print(len(speed_alpha_values)*len(remodelling_alpha_values))
+            print(' ')
+            
             result = variational_optical_flow( movie,
                                                speed_alpha=speed_alpha,
                                                remodelling_alpha=remodelling_alpha,
