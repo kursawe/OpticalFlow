@@ -2073,7 +2073,7 @@ def vary_regularisation(movie,
 
     return result_dict
 
-def plot_regularisation_variation(variation_result, filename):
+def plot_regularisation_variation(variation_result, filename, use_log_axes = False):
     """Plot the results generated with the function vary_regularisation
     
     Parameters :
@@ -2084,6 +2084,9 @@ def plot_regularisation_variation(variation_result, filename):
     
     filename : string
         where to save the file
+        
+    use_log_axes : bool
+       If True, use log scale on each axes
     """
     
     speed_alpha_values = variation_result['speed_alpha_values']
@@ -2118,6 +2121,9 @@ def plot_regularisation_variation(variation_result, filename):
                 #    vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
+    if use_log_axes:
+        plt.xscale('log')
+        plt.yscale('log')
     plt.colorbar()
     # plt.colorbar(shrink = 0.5)
     # plt.colorbar(norm=matplotlib.colors.LogNorm())
@@ -2132,6 +2138,9 @@ def plot_regularisation_variation(variation_result, filename):
                 #    vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
+    if use_log_axes:
+        plt.xscale('log')
+        plt.yscale('log')
     plt.colorbar()
     # plt.colorbar(shrink = 0.5)
     # plt.colorbar(norm=matplotlib.colors.LogNorm())
@@ -2148,6 +2157,9 @@ def plot_regularisation_variation(variation_result, filename):
                    vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
+    if use_log_axes:
+        plt.xscale('log')
+        plt.yscale('log')
     plt.colorbar()
     # plt.colorbar(norm=matplotlib.colors.LogNorm())
     # plt.colorbar(shrink = 0.5)
@@ -2164,6 +2176,9 @@ def plot_regularisation_variation(variation_result, filename):
                 #    vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
+    if use_log_axes:
+        plt.xscale('log')
+        plt.yscale('log')
     plt.colorbar()
     # plt.colorbar(shrink = 0.5)
     # plt.colorbar(norm=matplotlib.colors.LogNorm())

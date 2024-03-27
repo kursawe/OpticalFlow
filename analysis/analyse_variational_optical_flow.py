@@ -231,8 +231,8 @@ def apply_to_bischoff_data(speed_regularisation=6000, remodelling_regularisation
                                                           'real_data_test_' + str(speed_regularisation) + ' '
                                                           + str(remodelling_regularisation) + '.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 2.0,
-                                             arrow_boxsize = 50)
+                                             arrow_scale = 0.5,
+                                             arrow_boxsize = 10)
                                             #  arrow_width = 0.005)
                                             #  arrow_color = 'lime')
 
@@ -241,8 +241,8 @@ def apply_to_bischoff_data(speed_regularisation=6000, remodelling_regularisation
                                              'real_data_test' + str(speed_regularisation) + ' '
                                                           + str(remodelling_regularisation) + '_joint_result.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 2.0,
-                                             arrow_boxsize = 50)
+                                             arrow_scale = 0.5,
+                                             arrow_boxsize = 10)
                                             #  arrow_width = 0.005)
 
     print('mean, max and min final v_x are')
@@ -278,15 +278,16 @@ def perform_tuning_variation_on_real_data():
     # movie = movie[3:5,:,:]
     movie = movie[3:5,:,:]
  
-    result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(0,5,15),
-                                                           remodelling_alpha_values = np.logspace(0,5,15),
-                                                           filename = os.path.join(os.path.dirname(__file__), 'output',
-                                                                                   'real_data_regularisation_variation'),
-                                                           smoothing_sigma = 5)
+    # result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(0,5,15),
+                                                        #    remodelling_alpha_values = np.logspace(0,5,15),
+                                                        #    filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                #    'real_data_regularisation_variation'),
+                                                        #    smoothing_sigma = 5)
 
     result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_regularisation_variation.npy'),allow_pickle='TRUE').item()
     optical_flow.plot_regularisation_variation(result_for_plotting, os.path.join(os.path.dirname(__file__), 'output',
-                                                                                   'real_data_regularisation_variation.pdf'))
+                                                                                   'real_data_regularisation_variation.pdf'),
+                                                                                   use_log_axes = True)
     
 
 ####
@@ -518,8 +519,8 @@ if __name__ == '__main__':
     # reproduce_matlab_example_vortex_pair(speed_regularisation=1e5, remodelling_regularisation=1e4)
     # perform_tuning_variation_on_vortex_example()
 
-    apply_to_bischoff_data()
-    # perform_tuning_variation_on_real_data()
+    # apply_to_bischoff_data()
+    perform_tuning_variation_on_real_data()
     # try_stopping_condition()
     # test_with_data_on_boundary()
     
