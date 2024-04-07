@@ -197,52 +197,62 @@ def perform_tuning_variation_on_vortex_example():
     print(np.sum(result_for_plotting["converged"]))
 
     
-def apply_to_bischoff_data(speed_regularisation=6000, remodelling_regularisation=6000):
+def apply_to_bischoff_data(speed_regularisation=10000, remodelling_regularisation=100):
 
     movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
     delta_x = 105/1024
     delta_t = 10
 
-    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
-    def animate(i): 
+    # movie = movie[3:5,150:800,280:550]
+    # movie = movie[3:5,250:900,500:800]
+    movie = movie[3:5]
+    blur = 5
+    # print(movie.flatten().shape)
+    # fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    # def animate(i): 
         # plt.cla()
-        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+        # optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
     # ani = FuncAnimation(fig, animate, frames=movie.shape[0])
     # ani = FuncAnimation(fig, animate, frames=3)
-    # ani.save(os.path.join(os.path.dirname(__file__),'output','pretty_real_movie.mp4'),dpi=300) 
+    # ani.save(os.path.join(os.path.dirname(__file__),'output','pretty_real_movie_smaller.mp4'),dpi=300) 
  
     # iterations = 10000
     # iteration_stepsize = 500
-    movie = movie[3:5,:,:]
     # movie = movie[:10,:,:]
     result = optical_flow.variational_optical_flow(movie,
                                                            delta_x = delta_x,
                                                            delta_t = delta_t,
                                                            speed_alpha=speed_regularisation,
                                                            remodelling_alpha=remodelling_regularisation,
-                                                        #    initial_v_x =0.015,
-                                                        #    initial_v_y =0.015,
-                                                        #    remodelling_guess=0.05,
+                                                           initial_v_x =0.07,
+                                                           initial_v_y =0.07,
+                                                           initial_remodelling=10,
     # )
-                                                           smoothing_sigma = 5)
+                                                           smoothing_sigma = blur,
+                                                           use_direct_solver = False)
     
+    np.save(os.path.join(os.path.dirname(__file__),'output','real_data_test_result_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_' + str(blur) + '.npy'), result)
+    # result = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_test_result_' + str(speed_regularisation) + '_'
+                                                        #   + str(remodelling_regularisation) + '_' + str(blur) + '.npy'),allow_pickle='TRUE').item()
+
     optical_flow.make_velocity_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
-                                                          'real_data_test_' + str(speed_regularisation) + ' '
-                                                          + str(remodelling_regularisation) + '.mp4'), 
+                                                          'real_data_test_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_' + str(blur) + '.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.5,
-                                             arrow_boxsize = 10)
+                                             arrow_scale = 1,
+                                             arrow_boxsize = 40)
                                             #  arrow_width = 0.005)
                                             #  arrow_color = 'lime')
 
     optical_flow.make_joint_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
-                                             'real_data_test' + str(speed_regularisation) + ' '
-                                                          + str(remodelling_regularisation) + '_joint_result.mp4'), 
+                                             'real_data_test' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_' + str(blur) + '_joint_result.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.5,
-                                             arrow_boxsize = 10)
+                                             arrow_scale = 1,
+                                             arrow_boxsize = 40)
                                             #  arrow_width = 0.005)
 
     print('mean, max and min final v_x are')
@@ -278,16 +288,17 @@ def perform_tuning_variation_on_real_data():
     # movie = movie[3:5,:,:]
     movie = movie[3:5,:,:]
  
-    result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(3,8,15),
-                                                           remodelling_alpha_values = np.logspace(-1,8,20),
-                                                           filename = os.path.join(os.path.dirname(__file__), 'output',
-                                                                                   'real_data_regularisation_variation'),
-                                                           smoothing_sigma = 5)
+    # result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(3,8,15),
+                                                        #    remodelling_alpha_values = np.logspace(-1,8,20),
+                                                        #    filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                #    'real_data_regularisation_variation'),
+                                                        #    smoothing_sigma = 5)
 
-    # result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_regularisation_variation.npy'),allow_pickle='TRUE').item()
+    result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_regularisation_variation.npy'),allow_pickle='TRUE').item()
     optical_flow.plot_regularisation_variation(result_for_plotting, os.path.join(os.path.dirname(__file__), 'output',
                                                                                    'real_data_regularisation_variation.pdf'),
-                                                                                   use_log_axes = True)
+                                                                                   use_log_axes = True,
+                                                                                   use_log_colorbar = True)
     
 
 ####

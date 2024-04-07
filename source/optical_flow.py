@@ -714,7 +714,8 @@ def variational_optical_flow(movie,
                              smoothing_sigma = None,
                              initial_v_x=0.0,
                              initial_v_y= 0.0,
-                             initial_remodelling=0.0):
+                             initial_remodelling=0.0,
+                             use_direct_solver = False):
     """Perform variational optical flow on the movie.
     
     Parameters:
@@ -749,6 +750,9 @@ def variational_optical_flow(movie,
         
     initial_remodelling : float
         The initial guess for remodelling, can be a number or a matrix. Will only be used on the first frame
+        
+    use_direct_solver : bool
+        if True will try to use scipy spsolve - might crash your computer if the image is too large
         
     Returns:
     --------
@@ -1058,105 +1062,32 @@ def variational_optical_flow(movie,
         print(" ")
 
        
-        # print('constructing nullspace')
-        # nullspace, eigenvalues, other_nullspace = scipy.sparse.linalg.svds(LHS_matrix,k = 1, tol = 1e-2, which = 'SM', solver = 'lobpcg', maxiter = 1000)
-        # print(eigenvalues)
-        # print(nullspace)
-
-        # a= 1/0
         # PETSc.Options().setValue('-ksp_type','richardson')
         PETSc.Options().setValue('-ksp_type','bcgs')
         # PETSc.Options().setValue('-ksp_type','lsqr')
-        # PETSc.Options().setValue('-ksp_gmres_restart',1000)
-        # PETSc.Options().setValue('-ksp_divtol',1e10)
-        # PETSc.Options().setValue('-ksp_monitor_cancel',True)
+        # PETSc.Options().setValue('-ksp_gmres_restart',90)
+        PETSc.Options().setValue('-ksp_divtol',1e100)
+        # PETSc.Options().setValue('-ksp_gmres_breakdown_tolerance',1e100)
         # PETSc.Options().setValue('-ksp_diagonal_scale',True)
-        # PETSc.Options().setValue('-ksp_type','richardson')
-        # PETSc.Options().setValue('-pc_factor_levels',50)
         # PETSc.Options().setValue('-ksp_error_if_not_converged',1)
-        # PETSc.Options().setValue('-ksp_gmres_modifiedgramschmidt',1)
         # PETSc.Options().setValue('-pc_type', 'bjacobi')
-        # PETSc.Options().setValue('-pc_type', 'hypre')
-        # PETSc.Options().setValue('-pc_type', 'ilu')
         PETSc.Options().setValue('-pc_type', 'composite')
-        # PETSc.Options().setValue('-pc_composite_pcs', 'hypre,ilu,bjacobi')
-        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
-        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
         PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,hypre')
+        # PETSc.Options().setValue('-sub_1_pc_factor_levels', 2)
         PETSc.Options().setValue('-ksp_initial_guess_nonzero', True)
-        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi,ilu,gamg')
-        # PETSc.Options().setValue('-pc_composite_pcs', 'bjacobi')
-        # PETSc.Options().setValue('-pc_type', 'gamg')
-        # PETSc.Options().setValue('-sub_2_pc_gamg_type', 'classical')
-        # PETSc.Options().setValue('-sub_2_pc_gamg_esteig_ksp_type', 'chebyshev')
-        # PETSc.Options().setValue('-sub_2_pc_gamg_agg_n_smooths', 0)
-        # PETSc.Options().setValue('-pc_gamg_type', 'classical')
-        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_type', 'chebyshev')
-        # PETSc.Options().setValue('-pc_gamg_agg_n_smooths', 0)
-        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_type', 'chebyshev')
-        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_max_it', 40)
-
-        # PETSc.Options().setValue('-pc_type', 'mg')
-        # PETSc.Options().setValue('-pc_mg_levels', 20)
-        # PETSc.Options().setValue('-pc_gamg_repartition', True)
-        # PETSc.Options().setValue('-pc_gamg_aggressive_coarsening', 10)
-        # PETSc.Options().setValue('-pc_gamg_threshold', -1)
-        # PETSc.Options().setValue('-pc_type', 'mg')
-        # PETSc.Options().setValue('-pc_mg_levels', 20)
-        # PETSc.Options().setValue('-pc_hypre_type', 'ams')
-        # PETSc.Options().setValue('-pc_hypre_type', 'boomeramg')
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_relax_type_all', 'Jacobi')
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_numfunctions', 3)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_nodal_coarsen', 5)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_P_max', 1)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_truncfactor', 0.9)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_cycle_type', 'W')
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_agg_nl', 5)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_max_iter', 10)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_agg_num_paths',2)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_strong_threshold',0.8)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_print_statistics', 1)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_print_debug', 1)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_vec_interp_smooth',True)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_interp_type','classical')
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_interp_type','classical')
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_vec_interp_smooth',True)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_vec_interp_refine',True)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_grid_sweeps_all', 2)
-        # PETSc.Options().setValue('-pc_type', 'composite')
-        # PETSc.Options().setValue('-pc_composite_pcs', 'jacobi,hypre')
-        # PETSc.Options().setValue('-sub_1_pc_hypre_type', 'boomeramg')
-        # PETSc.Options().setValue('-sub_1_pc_hypre_boomeramg_print_statistics', 1)
-        # PETSc.Options().setValue('-pc_hypre_boomeramg_nodal_coarsen',6)
-        # PETSc.Options().setValue('-sub_3_pc_hypre_boomeramg_vec_interp_variant',3)
-        # PETSc.Options().setValue('-pc_gamg_esteig_ksp_type', 'cg')
-        # PETSc.Options().setValue('-pc_composite_type','multiplicative')
-        # PETSc.Options().setValue('-sub_2_pc_gamg_repartition', True)
-        # PETSc.Options().setValue('-sub_2_pc_gamg_aggressive_coarsening', 10)
         # PETSc.Options().setValue('-help', True)
-        # PETSc.Options().setValue('-help', True)
-        # PETSc.Options().setValue('-info', True)
-
-
-        # PETSc.Options().setValue('-mg_coars_pc_type','svd')
-        # PETSc.Options().setValue('-sub_3_pc_hypre_type','boomerang')
-        # PETSc.Options().setValue('-pc_gamg_agg_nsmooths',0)
 
         print("Translating matrix into Petsc objects")
         RHS_petsc = PETSc.Vec().create()
         RHS_petsc.setSizes(RHS.shape[0])
         RHS_petsc.setType('seq') 
 
-        # RHS[:] = 0.0
         RHS_petsc.setArray(RHS)
 
         # Create a PETSc Mat for the sparse matrix A
         LHS_matrix_petsc = PETSc.Mat().createAIJ(size=LHS_matrix.shape, csr=(LHS_matrix.indptr, LHS_matrix.indices, LHS_matrix.data))
         LHS_matrix_petsc.setBlockSizes(3, 3)
         LHS_matrix_petsc.setUp()
-        # print(dir(LHS_matrix_petsc))
-        # LHS_matrix_petsc.NullSpaceCreateRigidBody()
-        # LHS_matrix_petsc.setNearNullSpace()
         petsc_end_time = time.time()
         minutes, seconds, milliseconds = format_elapsed_time(petsc_end_time - linear_system_end_time)
         print(f"Time taken: {minutes} minutes, {seconds} seconds, {milliseconds} milliseconds")
@@ -1169,112 +1100,43 @@ def variational_optical_flow(movie,
         petsc_solution.setValues(get_index_set(N_i, N_j, 0,0, 'remodelling', include_boundaries = True), remodelling.flatten())
 
         solver = PETSc.KSP().create()
-        # P_matrix = LHS_matrix.transpose() @ LHS_matrix
-        # P_petsc = PETSc.Mat().createAIJ(size=P_matrix.shape, csr=(P_matrix.indptr, P_matrix.indices, P_matrix.data))
-        # solver.setOperators(LHS_matrix_petsc, P_petsc)
         solver.setOperators(LHS_matrix_petsc)
-        # solver.setType('bcgs')
-
-        # solver.getPC().setType(PETSc.PC.Type.HYPRE)
-        # solver.getPC().setType(PETSc.PC.Type.COMPOSITE)
-
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.JACOBI) 
-        # I think this ones helps with the fact that some entries are
-        # orders of magnited bigger than others, it's a form of diagonal scaling
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.BJACOBI) 
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.SOR) 
-        
-        # This is a standard preconditioner and it would use only that if we were not
-        # specifiying other ones also. My understanding is that it somehow
-        # makes the matrix "more diagonal"
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.ILU)
-
-        # This one makes a big difference. It's related to solving the system
-        # on a coarse grid first and then refines, but doing that within each iteration
-        # I am not sure how it works in detail and we should find the appropriate literature on it
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.GAMG)
-        # solver.getPC().addCompositePCType(PETSc.PC.Type.HYPRE)
+        solver.setTolerances(rtol = 1e-6, max_it=1000)
 
         # potentially useful leftovers from debugging:
         # print(dir(solver))
         # print(dir(solver.getPC()))
-        # solver.setGMRESRestart(5)
-        # solver.setTolerances(divtol = 1e100, max_it=500)
-        # solver.setTolerances(divtol = 1e100, max_it=2000)
-        # solver.setTolerances(divtol = 1e100, rtol = 1e-9, max_it=20000)
-        solver.setTolerances(rtol = 1e-6, max_it=100)
-        # solver.setTolerances(max_it=500)
-        # solver.getPC().setFactorLevels(1)
-        # possible_options['-help'] = True
-        # solver.setFromOptions(possible_options)
         solver.setFromOptions()
-        # solver.getPC().setGAMGLevels(20)
-        # solver.getPC().setMGLevels(20)
-        # i_meshgrid, j_meshgrid = np.meshgrid(np.arange(N_i, dtype = np.int32), np.arange(N_j, dtype = np.int32), indexing='ij')
-        # coordinates = np.vstack((i_meshgrid.flatten(),j_meshgrid.flatten()))
-        # coordinates = np.repeat(coordinates,3, axis = 1).transpose()
-        # print(coordinates)
-
-        # solver.getPC().setCoordinates(coordinates)
-
-        # i_meshgrid_x, j_meshgrid_x = np.meshgrid(np.arange(1,N_i-1, dtype = np.int32), np.arange(N_j, dtype = np.int32), indexing='ij')
-        # next_xindices = (N_j * (i_meshgrid_x + 1) + (j_meshgrid_x)).flatten()
-        # previous_xindices = (N_j * (i_meshgrid_x - 1) + (j_meshgrid_x)).flatten()
-        # central_x_indices = np.arange(len(next_xindices))
-
-        # i_meshgrid_y, j_meshgrid_y = np.meshgrid(np.arange(N_i, dtype = np.int32), np.arange(1,N_j-1, dtype = np.int32), indexing='ij')
-        # next_yindices = (N_j * (i_meshgrid_y) + (j_meshgrid_y + 1)).flatten()
-        # previous_yindices = (N_j * (i_meshgrid_y) + (j_meshgrid_y - 1)).flatten()
-        # central_y_indices = np.arange(len(next_yindices)) + len(central_x_indices)
-        
-        # number_of_edges = len(central_x_indices) + len(central_y_indices)
-        # top_indices = np.arange(N_j)
-        # next_x_indices = 3*N_j
-
-        # gradient_matrix = scipy.sparse.lil_matrix((number_of_edges, N_i*(N_j)), dtype=float)
-        # gradient_matrix[central_x_indices,next_xindices] = 1/2
-        # gradient_matrix[central_x_indices,previous_xindices] = -1/2
-        # gradient_matrix[central_y_indices,next_yindices] = 1/2
-        # gradient_matrix[central_y_indices,previous_yindices] = -1/2
-        
-        
-        # gradient_matrix = gradient_matrix.tocsr()
-
-        # gradient_matrix_petsc = PETSc.Mat().createAIJ(size=gradient_matrix.shape, csr=(gradient_matrix.indptr, gradient_matrix.indices, gradient_matrix.data))
-
-        # solver.getPC().setHYPREDiscreteGradient(gradient_matrix_petsc)
-        # use the real norm of the residual rather than the preconditioned one
         solver.setNormType(PETSc.KSP.NormType.NORM_UNPRECONDITIONED)
         
-        # tell it that the initial guess may be intentionally non-zero
-        # solver.setInitialGuessNonzero(True)  # Specify that the initial guess is nonzero
-
-        # solver.setFromOpions()
-        # Solve the linear system
         print("starting solve")
         start_time = time.time()
-        solver.setMonitor(lambda ksp, its, rnorm: print("Iteration:", its, "  Residual norm:", rnorm))
-        solver.solve(RHS_petsc, petsc_solution)
+        if not use_direct_solver:
+            solver.setMonitor(lambda ksp, its, rnorm: print("Iteration:", its, "  Residual norm:", rnorm))
+            solver.solve(RHS_petsc, petsc_solution)
 
-        print(" ")
-        if solver.converged:
-            print('The solver converged sucessfully')
-        else:
-            print('the solver has not actually converged, the result will be incorrect or inaccurate')
+            print(" ")
+            if solver.converged:
+                print('The solver converged sucessfully')
+            else:
+                print('the solver has not actually converged, the result will be incorrect or inaccurate')
  
-        final_residual_norm = solver.getResidualNorm()
+            final_residual_norm = solver.getResidualNorm()
 
-        print("Final Residual norm returned by solver:", final_residual_norm)
-        print(" ")
-        # Get the solution as a NumPy array
-        system_solution = petsc_solution.getArray()
-        # system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
-
+            print("Final Residual norm returned by solver:", final_residual_norm)
+            print(" ")
+            # Get the solution as a NumPy array
+            system_solution = petsc_solution.getArray()
+        else:
+            system_solution = scipy.sparse.linalg.spsolve(LHS_matrix.tocsr(), RHS)       
 
         end_time = time.time()
         print('Final residual norm independently calculated:')
         print(np.linalg.norm(LHS_matrix @ system_solution - RHS)/np.linalg.norm(RHS))
         
+        print('the petsc convergence reason is')
+        print(solver.getConvergedReason())
+
         minutes, seconds, milliseconds = format_elapsed_time(end_time - start_time)
         print(f"Elapsed time for solve: {minutes} minutes, {seconds} seconds, {milliseconds} milliseconds")
 
@@ -2086,7 +1948,7 @@ def vary_regularisation(movie,
 
     return result_dict
 
-def plot_regularisation_variation(variation_result, filename, use_log_axes = False):
+def plot_regularisation_variation(variation_result, filename, use_log_axes = False, use_log_colorbar = False):
     """Plot the results generated with the function vary_regularisation
     
     Parameters :
@@ -2100,13 +1962,21 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
         
     use_log_axes : bool
        If True, use log scale on each axes
+
+    use_log_axes : bool
+       If True, use log scale also on the color axes
     """
     
     speed_alpha_values = variation_result['speed_alpha_values']
     remodelling_alpha_values = variation_result['remodelling_alpha_values']
     remodelling_alpha_grid, speed_alpha_grid = np.meshgrid(remodelling_alpha_values, speed_alpha_values)
-    aspect_ratio = (np.max(speed_alpha_values) - np.min(speed_alpha_values))/(
-        np.max(remodelling_alpha_values) - np.min(remodelling_alpha_values))
+    if use_log_axes:
+        speed_extent = np.max(np.log(speed_alpha_values)) - np.min(np.log(speed_alpha_values))
+        remodelling_extent = np.max(np.log(remodelling_alpha_values)) - np.min(np.log(remodelling_alpha_values))
+    else:
+        speed_extent = np.max(speed_alpha_values) - np.min(speed_alpha_values)
+        remodelling_extent = np.max(remodelling_alpha_values) - np.min(remodelling_alpha_values)
+    aspect_ratio = speed_extent/remodelling_extent
 
     # v_min = 0.0
     # v_max = 2.0
@@ -2129,9 +1999,12 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
 
     plt.subplot(221)
     variation_result['speed_means'][np.logical_not(variation_result['converged'])] = np.nan
-    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_means'], cmap='viridis',
-                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
-                #    vmin = v_min, vmax = v_max)
+    if use_log_colorbar:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_means'], cmap='viridis',
+                       vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+    else:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_means'], cmap='viridis',
+                       vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
     if use_log_axes:
@@ -2146,9 +2019,14 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
 
     plt.subplot(222)
     variation_result['speed_variances'][np.logical_not(variation_result['converged'])] = np.nan
-    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_variances'], cmap='viridis',
-                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
-                #    vmin = v_min, vmax = v_max)
+    speed_CV = np.sqrt(variation_result['speed_variances'])/np.abs(variation_result['speed_means'])
+    # plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['speed_variances'], cmap='viridis',
+    if use_log_colorbar:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, speed_CV, cmap='viridis',
+                       vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+    else:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, speed_CV, cmap='viridis',
+                       vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
     if use_log_axes:
@@ -2161,13 +2039,16 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
     plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
     # plt.xlabel(r'$\alpha$ for speed')
     # plt.ylabel(r'$\alpha$ for remodelling')
-    plt.title('Speed variance')
+    plt.title('Speed COV')
 
     plt.subplot(223)
     variation_result['remodelling_means'][np.logical_not(variation_result['converged'])] = np.nan
-    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_means'], cmap='viridis',
-                #    vmin = v_min, vmax = v_max)
+    if use_log_colorbar:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_means'], cmap='viridis',
                    vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+    else:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_means'], cmap='viridis',
+                       vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
     if use_log_axes:
@@ -2184,9 +2065,14 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
 
     plt.subplot(224)
     variation_result['remodelling_variances'][np.logical_not(variation_result['converged'])] = np.nan
-    plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_variances'], cmap='viridis',
-                   vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
-                #    vmin = v_min, vmax = v_max)
+    remodelling_CV = np.sqrt(variation_result['remodelling_variances'])/np.abs(variation_result['remodelling_means'])
+    # plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, variation_result['remodelling_variances'], cmap='viridis',
+    if use_log_colorbar:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, remodelling_CV, cmap='viridis',
+                       vmin = v_min, vmax = v_max, norm = matplotlib.colors.LogNorm())
+    else:
+        plt.pcolormesh(speed_alpha_grid, remodelling_alpha_grid, remodelling_CV, cmap='viridis',
+                       vmin = v_min, vmax = v_max)
     # plt.gca().set_aspect('equal', adjustable='box')
     plt.gca().set_aspect(aspect_ratio)
     if use_log_axes:
@@ -2199,7 +2085,7 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
     plt.ylabel(r'$\alpha_{\mathrm{remodelling}}$')
     # plt.xlabel(r'$\alpha$ for speed')
     # plt.ylabel(r'$\alpha$ for remodelling')
-    plt.title('Remodelling variance')
+    plt.title('Remodelling COV')
     
     plt.savefig(filename)
  
