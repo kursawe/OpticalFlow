@@ -11,6 +11,7 @@ plt.rc('font', **font)
 import pandas as pd
 from numba import jit
 from matplotlib.animation import FuncAnimation
+import matplotlib.ticker
 from scipy.stats import gaussian_kde
 import cv2
 import imageio
@@ -21,116 +22,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
 
    
-def make_fake_data(v_x = 0.1, v_y = 0.2, remodelling = 0.05, add_remodelling_slope = False):
-    """ Use this method to make and return facke data in the same way between tests."""
-    first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50)
-    second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 50)
-    first_frame-=0.8
-    second_frame-=0.8
-    first_frame[first_frame<0]=0.0
-    second_frame[second_frame<0]=0.0
-    first_frame/=np.max(first_frame)
-    second_frame/=np.max(second_frame)
-    movie = np.stack((first_frame, second_frame))
-    movie = optical_flow.blur_movie(movie, smoothing_sigma=3)
-    if add_remodelling_slope:
-        row = np.linspace(0.0,remodelling,movie.shape[2])
-        remodelling_matrix = np.tile(row,(movie.shape[1],1))
-        movie[1,:,:] += remodelling_matrix
-    else:
-        movie[1,:,:] += remodelling
-    return movie, delta_x
-
-def make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05, v_x_start = 0.09, v_y_start = 0.09,
-                                             remodelling_start = 0.1):
-    # make data
-    movie, delta_x = make_fake_data(v_x = v_x, v_y = v_y, remodelling = remodelling)
-    iterations = 400000
-    iteration_stepsize = 20000
-    filename_start = os.path.join(os.path.dirname(__file__),'output','convergence_analysis_vx_'+ "{:.2f}".format(v_x)
-                                  + '_vy_' + "{:.2f}".format(v_x) + '_rmdlng_' +  "{:.2f}".format(remodelling) + '_iterations_' +str(iterations)
-                                  + '_vx_start_' + "{:.2f}".format(v_x_start))
-    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
-    def animate(i): 
-        # plt.cla()
-        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
-    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
-    # ani = FuncAnimation(fig, animate, frames=3)
-    ani.save(os.path.join(filename_start + '_data_.mp4'),dpi=300) 
- 
-    # call method
-    result = optical_flow.conduct_variational_optical_flow(movie,
-                                                           delta_x = delta_x,
-                                                           delta_t = 1.0,
-                                                           speed_alpha=10.0,
-                                                           remodelling_alpha = 10000.0,
-                                                           v_x_guess=v_x_start,
-                                                           v_y_guess=v_y_start,
-                                                           remodelling_guess=remodelling_start,
-                                                           max_iterations = iterations,
-                                                           smoothing_sigma = None,
-                                                           return_iterations = True,
-                                                           iteration_stepsize = iteration_stepsize,
-                                                           tolerance = 1e-20,
-                                                           include_remodelling = True)
- 
-    # plot convergence analysis
-    optical_flow.make_convergence_plots(result, filename_start = filename_start)
-    print('mean and max final v_x are')
-    print(np.mean(result['v_x']))
-    print(np.max(result['v_x']))
-    print('mean and max final v_y are')
-    print(np.mean(result['v_y']))
-    print(np.max(result['v_y']))
-    print('mean and max final remodelling are')
-    print(np.mean(result['remodelling']))
-    print(np.max(result['remodelling']))
-    
-def try_stopping_condition():
-    # make data
-    movie, delta_x= make_fake_data(v_x =0.1, v_y = 0.2, remodelling = 0.05)
-    max_iterations = 15000000
-    tolerance = 1e-8
-    # filename_start = os.path.join(os.path.dirname(__file__),'output','convergence_analysis_vx_'+ "{:.2f}".format(v_x)
-                                #   + '_vy_' + "{:.2f}".format(v_x) + '_rmdlng_' +  "{:.2f}".format(remodelling) + '_iterations_' +str(iterations)
-                                #   + '_vx_start_' + "{:.2f}".format(v_x)start)
-    filename = os.path.join(os.path.dirname(__file__),'output','first_compound_result_with_stopping_condition.mp4')
-
-    # call method
-    result = optical_flow.conduct_variational_optical_flow(movie,
-                                                           delta_x = delta_x,
-                                                           delta_t = 1.0,
-                                                           speed_alpha=1.0,
-                                                           remodelling_alpha = 10000.0,
-                                                           v_x_guess=0.09,
-                                                           v_y_guess=0.09,
-                                                           remodelling_guess=0.1,
-                                                           max_iterations = max_iterations,
-                                                           tolerance = tolerance,
-                                                           smoothing_sigma = None,
-                                                           return_iterations = False)
- 
-    optical_flow.make_joint_overlay_movie(result, 
-                                             filename, 
-                                             autoscale = True,
-                                             arrow_scale = 0.5,
-                                             arrow_boxsize = 4)
- 
-    # plot convergence analysis
-    print("The total number of iterations is:")
-    print(result["total_iterations"])
-    print('mean and max final v_x are')
-    print(np.mean(result['v_x']))
-    print(np.max(result['v_x']))
-    print('mean and max final v_y are')
-    print(np.mean(result['v_y']))
-    print(np.max(result['v_y']))
-    print('mean and max final remodelling are')
-    print(np.mean(result['remodelling']))
-    print(np.max(result['remodelling']))
- 
-
-def illustrate_boundary_artifacts():
+def simle_test_with_data_on_boundary():
     v_x = 0.1
     v_y = 0.2
     first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50, include_noise = False)
@@ -138,15 +30,8 @@ def illustrate_boundary_artifacts():
     second_frame += 0.05
     movie = np.stack((first_frame, second_frame))
     
-    filename_start = os.path.join(os.path.dirname(__file__),'output','boundary_example')
+    filename_start = os.path.join(os.path.dirname(__file__),'output','simple_example' )
     
-    max_iterations = 200000
-    iteration_stepsize = 10000
-    # max_iterations = 10
-    # iteration_stepsize = 1
-    # max_iterations = 90
-    # iteration_stepsize = 5
-
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
         # plt.cla()
@@ -156,27 +41,17 @@ def illustrate_boundary_artifacts():
     ani.save(os.path.join(filename_start + '_data_.mp4'),dpi=300) 
  
     # call method
-    result = optical_flow.conduct_variational_optical_flow(movie,
+    result = optical_flow.variational_optical_flow(movie,
                                                            delta_x = delta_x,
                                                            delta_t = 1.0,
                                                            speed_alpha=1.0,
                                                            remodelling_alpha = 10000.0,
-                                                           v_x_guess=0.01,
-                                                           v_y_guess=0.01,
-                                                           remodelling_guess=0.00,
-                                                           max_iterations = max_iterations,
-                                                           iteration_stepsize = iteration_stepsize,
-                                                           smoothing_sigma = None,
-                                                           tolerance = 1e-17,
-                                                           include_remodelling = True,
-                                                           return_iterations = True)
+                                                           smoothing_sigma = None)
     
-    optical_flow.make_convergence_plots(result, filename_start = filename_start)
-
     optical_flow.make_joint_overlay_movie(result, 
                                              filename_start + '_joint_result.mp4', 
                                              autoscale = True,
-                                             arrow_scale = 0.1,
+                                             arrow_scale = 0.5,
                                              arrow_boxsize = 4)
  
     print('mean and max final v_x are')
@@ -189,12 +64,61 @@ def illustrate_boundary_artifacts():
     print(np.mean(result['remodelling']))
     print(np.max(result['remodelling']))
  
-def reproduce_matlab_example_vortex_pair_new():
+def test_big_fake_data():
+    v_x = 0.1
+    v_y = 0.2
+    first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 1000, include_noise = False)
+    second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.5 + v_x, y_position = 2.5 + v_y, sigma = 3, width = 5, dimension = 1000, include_noise = False)
+    second_frame += 0.05
+    movie = np.stack((first_frame, second_frame))
+    
+    filename_start = os.path.join(os.path.dirname(__file__),'output','big_file_example')
+    
+    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    def animate(i): 
+        # plt.cla()
+        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    ani.save(os.path.join(filename_start + '_data_.mp4'),dpi=300) 
+ 
+    # call method
+    result = optical_flow.variational_optical_flow(movie,
+                                                           delta_x = delta_x,
+                                                           delta_t = 1.0,
+                                                           speed_alpha=1e8,
+                                                           remodelling_alpha = 4*1e8)
+    
+    optical_flow.make_joint_overlay_movie(result, 
+                                             filename_start + '_joint_result.mp4', 
+                                             autoscale = True,
+                                             arrow_scale = 0.5,
+                                             arrow_boxsize = 80)
+ 
+    # formatter = matplotlib.ticker.ScalarFormatter()
+    # formatter.set_powerlimits((-2, 2))
+    # plt.gca().images[-1].colorbar.ax.yaxis.set_major_formatter(formatter)
+    # plt.gca().images[-1].colorbar.ax.yaxis.set_major_formatter(matplotlib.ticker.FormatStrFormatter('%.2g'))
+
+    print('mean and max final v_x are')
+    print(np.mean(result['v_x']))
+    print(np.max(result['v_x']))
+    print('mean and max final v_y are')
+    print(np.mean(result['v_y']))
+    print(np.max(result['v_y']))
+    print('mean and max final remodelling are')
+    print(np.mean(result['remodelling']))
+    print(np.max(result['remodelling']))
+ 
+def reproduce_matlab_example_vortex_pair(speed_regularisation=2e4, remodelling_regularisation=1e3):
     first_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_1.tif')) 
     second_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_2.tif')) 
 
+    print("the mean intensity difference of the two frames is")
+    print(np.mean(np.abs(first_frame - second_frame)))
+    print("the difference of mean intensities of the two frames is")
+    print(np.mean(first_frame) - np.mean(second_frame))
     movie = np.stack((first_frame, second_frame))
-    movie = movie.astype(np.float64)
     
     delta_x = 1.0
 
@@ -204,153 +128,179 @@ def reproduce_matlab_example_vortex_pair_new():
         optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
     ani = FuncAnimation(fig, animate, frames=movie.shape[0])
     # ani = FuncAnimation(fig, animate, frames=3)
-    ani.save(os.path.join(os.path.dirname(__file__),'output','liu_shen_vortex__in_silico_data_new.mp4'),dpi=300) 
+    ani.save(os.path.join(os.path.dirname(__file__),'output','liu_shen_vortex__in_silico_data.mp4'),dpi=300) 
  
     # iterations = 10000
     # iteration_stepsize = 500
-    iterations = 3000
-    iteration_stepsize = 150
-    stepsizes = np.arange(0,iterations+0.5,iteration_stepsize,dtype = int)
-    result = optical_flow.conduct_variational_optical_flow(movie,
+    result = optical_flow.variational_optical_flow(movie,
                                                            delta_x = 1.0,
                                                            delta_t = 1.0,
-                                                           speed_alpha=2000,
-                                                           remodelling_alpha=1e20,
-                                                           v_x_guess=0.015,
-                                                           v_y_guess=0.015,
-                                                           remodelling_guess=0.00,
-                                                           max_iterations = iterations,
-                                                           smoothing_sigma = 0.62*6,
-                                                           return_iterations = True,
-                                                           iteration_stepsize = iteration_stepsize,
-                                                           include_remodelling = True)
-                                                        #    use_liu_shen = True)
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
+                                                           initial_v_x =0.015,
+                                                           initial_v_y =0.015,
+                                                        #    remodelling_guess=0.05,
+    # )
+                                                           smoothing_sigma = 0.62*4)
     
     optical_flow.make_velocity_overlay_movie(result, 
                                              os.path.join(os.path.dirname(__file__),'output',
-                                                          'vortex_test_iterations_new' + str(iterations) + '.mp4'), 
+                                                          'vortex_test_' + str(speed_regularisation) + ' '
+                                                          + str(remodelling_regularisation) + '.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.05,
-                                             arrow_boxsize = 20)
-    
-    fig = plt.figure(figsize = (2.5,2.5), constrained_layout = True)
-    def animate(i): 
-        plt.clf()
-        plt.title('Iteration ' + str(stepsizes[i]))
-        this_speed_frame = np.zeros((movie.shape[1], movie.shape[2]))
-        this_speed_frame[:,:] = result['speed_steps'][0,i,:,:]
-        optical_flow.costum_imshow(this_speed_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
-        colorbar = plt.colorbar()
-        plt.clim(np.min(result['speed_steps']),np.max(result['speed_steps']))
-        colorbar.ax.set_ylabel('Motion speed [$\mathrm{\mu m}$/s]')
-    ani = FuncAnimation(fig, animate, frames=result['speed_steps'].shape[1])
-    ani.save(os.path.join(os.path.dirname(__file__),'output','vortex_iterations_new_' + str(iterations) + '.mp4'),dpi=300) 
- 
-    error_measure = np.zeros(iterations//iteration_stepsize)
-    for iteration_index in range(iterations//iteration_stepsize):
-        this_error_measure = (np.linalg.norm(result['speed_steps'][0,iteration_index + 1,:,:] - 
-                                             result['speed_steps'][0,iteration_index,:,:])/
-                         np.linalg.norm(result['speed_steps'][0,iteration_index + 1,:,:]))
-        error_measure[iteration_index] = this_error_measure
-        
-    plt.figure(figsize = (2.5,2.5), constrained_layout = True) 
-    plt.plot(stepsizes[1:], error_measure)
-    plt.title('Stepsize per ' + str(iteration_stepsize) + '\niterations')
-    plt.yscale('log')
-    plt.xlabel('iterations')
-    plt.ylabel('relative step size')
-    plt.savefig(os.path.join(os.path.dirname(__file__),'output','vortex_stepsizes_new.pdf')) 
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 20,
+                                             arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
 
+    optical_flow.make_joint_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                             'vortex_test' + str(speed_regularisation) + ' '
+                                                          + str(remodelling_regularisation) + '_joint_result.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 20,
+                                             arrow_width = 0.005)
 
-    optical_flow.make_convergence_plots(result, filename_start = os.path.join(os.path.dirname(__file__),'output','vortex_convergence_new.pdf'))
-
-    print('mean and max final v_x are')
+    print('mean, max and min final v_x are')
     print(np.mean(result['v_x']))
     print(np.max(result['v_x']))
-    print('mean and max final v_y are')
+    print(np.min(result['v_x']))
+
+    print('mean, max and min final v_y are')
     print(np.mean(result['v_y']))
     print(np.max(result['v_y']))
-    print('mean and max final remodelling are')
+    print(np.min(result['v_y']))
+
+    print('mean, max and min final remodelling are')
     print(np.mean(result['remodelling']))
     print(np.max(result['remodelling']))
-    
-    
-    np.save(os.path.join(os.path.dirname(__file__),'output','vortex_new_convergence_result.npy'), result)
+    print(np.min(result['remodelling']))
  
-def analyse_emergence_of_vortex_pair_instability():
-
-    result = np.load(os.path.join(os.path.dirname(__file__),'output','vortex_new_convergence_result.npy'),allow_pickle='TRUE').item()
+def perform_tuning_variation_on_vortex_example():
+    first_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_1.tif')) 
+    second_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_2.tif')) 
+    movie = np.stack((first_frame, second_frame))
     
-    print("The max v_x value is at")
-    print(np.unravel_index(np.argmax(result['v_x']),result['v_x'].shape))
-    print("The min v_y value is at")
-    print(np.unravel_index(np.argmax(-result['v_y']),result['v_y'].shape))
+    # result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.linspace(1000,100000,15),
+                                                        #    remodelling_alpha_values = np.linspace(100,10000,15),
+                                                        #    filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                #    'vortex_pair_regularisation_variation'),
+                                                        #    smoothing_sigma = 0.62*4)
+
+    result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','vortex_pair_regularisation_variation.npy'),allow_pickle='TRUE').item()
+    optical_flow.plot_regularisation_variation(result_for_plotting, os.path.join(os.path.dirname(__file__), 'output',
+                                                                                   'vortex_pair_regularisation_variation.pdf'))
     
-    filenamestart = os.path.join(os.path.dirname(__file__),'output','vortex_debug')
+    print(np.min(result_for_plotting["converged"]))
+    print(np.max(result_for_plotting["converged"]))
+    print(np.sum(result_for_plotting["converged"]))
 
-    tifffile.imsave(filenamestart + '_vx.tiff',result['v_x'])
-    tifffile.imsave(filenamestart + '_vy.tiff',result['v_y'])
-    tifffile.imsave(filenamestart + '_speed.tiff',result['speed'])
     
-    blurred_data = optical_flow.blur_movie(result['original_data'], smoothing_sigma = 0.62*6)
-    previous_frame_w_border = blurred_data[0,:,:]
-    current_frame_w_border = blurred_data[1,:,:]
-    previous_frame = previous_frame_w_border[1:-1,1:-1]
-    current_frame = current_frame_w_border[1:-1,1:-1]
+def apply_to_bischoff_data(speed_regularisation=10000, remodelling_regularisation=100):
 
-    dIdx = optical_flow.apply_numerical_derivative(previous_frame_w_border,'dx')#dI/dx_ij  #h=delta_x in equation
-    dIdy = optical_flow.apply_numerical_derivative(previous_frame_w_border,'dy')#dI/dx_ij  #h=delta_x in equation
-            
-    dIdx_t=(current_frame_w_border[2:,1:-1] -current_frame_w_border[:-2,1:-1]
-                -previous_frame_w_border[2:,1:-1] +previous_frame_w_border[:-2,1:-1])/2
+    movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
+    delta_x = 105/1024
+    delta_t = 10
 
-    dIdy_t=(current_frame_w_border[1:-1,2:] -current_frame_w_border[1:-1,:-2]
-                -previous_frame_w_border[1:-1,2:] +previous_frame_w_border[1:-1,:-2])/2
-
-    dIdt_w_border = (current_frame_w_border
-                      -previous_frame_w_border)
-    dIdt = dIdt_w_border[1:-1,1:-1]
-
-    dIdxx = optical_flow.apply_numerical_derivative(previous_frame_w_border, 'dxx')
-    dIdyy = optical_flow.apply_numerical_derivative(previous_frame_w_border, 'dyy')
-    dIdyx = optical_flow.apply_numerical_derivative(previous_frame_w_border, 'dyx')
-
-    speed_alpha = 2000
-    remodelling_alpha = 1e20
-    ####Set up all boundary conditions
-    ## LHS Matrix for the bulk
-    A11 = (previous_frame*dIdxx -2*previous_frame**2 -4*speed_alpha)
-    # A11 = (previous_frame*dIdxx -2*previous_frame**2)
-    A12 = previous_frame*dIdyx
-    A22 = previous_frame*dIdyy -2*previous_frame**2-4*speed_alpha
-    # A22 = previous_frame*dIdyy -2*previous_frame**2
-    A31 = -dIdx
-    A32 = -dIdy
-    A33 = +(1 +4*remodelling_alpha)
-    
-    # This is not the actual determinant, but the 2D top left sub-determinant
-    det_A = A11*A22 - A12*A12
-
-    # inverse of the matrix
-    inv_A11 = A22/det_A
-    inv_A12 = -A12/det_A
-    inv_A22 = A11/det_A
-    inv_A31 = (A32*A12 - A22*A31)/(det_A*A33)
-    inv_A32 = (A12*A31 - A32*A11)/(det_A*A33)
-    inv_A33 = 1/A33
-    
-    print('max and min det a')
-    print(np.max(det_A))
-    print(np.min(det_A))
-
-    print('max and min A11')
-    print(np.max(np.abs(A11)))
-    print(np.min(np.abs(A11)))
+    # movie = movie[3:5,150:800,280:550]
+    # movie = movie[3:5,250:900,500:800]
+    movie = movie[3:5]
+    blur = 5
+    # print(movie.flatten().shape)
+    # fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    # def animate(i): 
+        # plt.cla()
+        # optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    # ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    # ani.save(os.path.join(os.path.dirname(__file__),'output','pretty_real_movie_smaller.mp4'),dpi=300) 
  
-    print('max and min A22')
-    print(np.max(np.abs(A22)))
-    print(np.min(np.abs(A22)))
+    # iterations = 10000
+    # iteration_stepsize = 500
+    # movie = movie[:10,:,:]
+    result = optical_flow.variational_optical_flow(movie,
+                                                           delta_x = delta_x,
+                                                           delta_t = delta_t,
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
+                                                           initial_v_x =0.07,
+                                                           initial_v_y =0.07,
+                                                           initial_remodelling=10,
+    # )
+                                                           smoothing_sigma = blur,
+                                                           use_direct_solver = False)
+    
+    np.save(os.path.join(os.path.dirname(__file__),'output','real_data_test_result_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_' + str(blur) + '.npy'), result)
+    # result = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_test_result_' + str(speed_regularisation) + '_'
+                                                        #   + str(remodelling_regularisation) + '_' + str(blur) + '.npy'),allow_pickle='TRUE').item()
+
+    optical_flow.make_velocity_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                                          'real_data_test_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_' + str(blur) + '.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 1,
+                                             arrow_boxsize = 40)
+                                            #  arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
+
+    optical_flow.make_joint_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                             'real_data_test' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_' + str(blur) + '_joint_result.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 1,
+                                             arrow_boxsize = 40)
+                                            #  arrow_width = 0.005)
+
+    print('mean, max and min final v_x are')
+    print(np.mean(result['v_x']))
+    print(np.max(result['v_x']))
+    print(np.min(result['v_x']))
+
+    print('mean, max and min final v_y are')
+    print(np.mean(result['v_y']))
+    print(np.max(result['v_y']))
+    print(np.min(result['v_y']))
+
+    print('mean, max and min final remodelling are')
+    print(np.mean(result['remodelling']))
+    print(np.max(result['remodelling']))
+    print(np.min(result['remodelling']))
  
+def perform_tuning_variation_on_real_data():
+    movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
+    delta_x = 105/1024
+    delta_t = 10
+
+    # fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    # def animate(i): 
+        # plt.cla()
+        # optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+    # ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    # ani = FuncAnimation(fig, animate, frames=3)
+    # ani.save(os.path.join(os.path.dirname(__file__),'output','pretty_real_movie.mp4'),dpi=300) 
+ 
+    # iterations = 10000
+    # iteration_stepsize = 500
+    # movie = movie[3:5,:,:]
+    movie = movie[3:5,:,:]
+ 
+    # result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(3,8,15),
+                                                        #    remodelling_alpha_values = np.logspace(-1,8,20),
+                                                        #    filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                #    'real_data_regularisation_variation'),
+                                                        #    smoothing_sigma = 5)
+
+    result_for_plotting = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_regularisation_variation.npy'),allow_pickle='TRUE').item()
+    optical_flow.plot_regularisation_variation(result_for_plotting, os.path.join(os.path.dirname(__file__), 'output',
+                                                                                   'real_data_regularisation_variation.pdf'),
+                                                                                   use_log_axes = True,
+                                                                                   use_log_colorbar = True)
+    
+
 ####
 #### These are functions I played around with while figuring things out. I may have changed the interface in optical_flow.py too much
 #### for these to still work, but I figured it might be good to keep them for now.
@@ -419,89 +369,6 @@ def reproduce_matlab_variational_flow_method():
     # This tests that the mean speed comes out after 1000 iterations like this:
     assert(np.mean(result['speed']-0.08600834591294404 <1e-15))
 
-def reproduce_matlab_example_vortex_pair():
-    first_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_1.tif')) 
-    second_frame = tifffile.imread(os.path.join(os.path.dirname(__file__),'data','vortex_pair_particles_2.tif')) 
-
-    movie = np.stack((first_frame, second_frame))
-    
-    delta_x = 1.0
-
-    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
-    def animate(i): 
-        # plt.cla()
-        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
-    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
-    # ani = FuncAnimation(fig, animate, frames=3)
-    ani.save(os.path.join(os.path.dirname(__file__),'output','liu_shen_vortex__in_silico_data.mp4'),dpi=300) 
- 
-    # iterations = 10000
-    # iteration_stepsize = 500
-    iterations = 10000
-    iteration_stepsize = 500
-    stepsizes = np.arange(0,iterations+0.5,iteration_stepsize,dtype = int)
-    result = optical_flow.conduct_variational_optical_flow(movie,
-                                                           delta_x = 1.0,
-                                                           delta_t = 1.0,
-                                                           speed_alpha=2000,
-                                                           v_x_guess=0.015,
-                                                           v_y_guess=0.015,
-                                                           remodelling_guess=0.05,
-                                                           max_iterations = iterations,
-                                                           smoothing_sigma = 0.62*6,
-                                                           return_iterations = True,
-                                                           iteration_stepsize = iteration_stepsize,
-                                                           include_remodelling = False,
-                                                           tolerance = 1e-20,
-                                                           use_liu_shen = True)
-    
-    optical_flow.make_velocity_overlay_movie(result, 
-                                             os.path.join(os.path.dirname(__file__),'output',
-                                                          'vortex_test_iterations' + str(iterations) + '.mp4'), 
-                                             autoscale = True,
-                                             arrow_scale = 0.05,
-                                             arrow_boxsize = 20)
-    
-    fig = plt.figure(figsize = (2.5,2.5), constrained_layout = True)
-    def animate(i): 
-        plt.clf()
-        plt.title('Iteration ' + str(stepsizes[i]))
-        this_speed_frame = np.zeros((movie.shape[1], movie.shape[2]))
-        this_speed_frame[:,:] = result['speed_steps'][0,i,:,:]
-        optical_flow.costum_imshow(this_speed_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
-        colorbar = plt.colorbar()
-        plt.clim(np.min(result['speed_steps']),np.max(result['speed_steps']))
-        colorbar.ax.set_ylabel('Motion speed [$\mathrm{\mu m}$/s]')
-    ani = FuncAnimation(fig, animate, frames=result['speed_steps'].shape[1])
-    ani.save(os.path.join(os.path.dirname(__file__),'output','vortex_iterations_' + str(iterations) + '.mp4'),dpi=300) 
- 
-    error_measure = np.zeros(iterations//iteration_stepsize)
-    for iteration_index in range(iterations//iteration_stepsize):
-        this_error_measure = (np.linalg.norm(result['speed_steps'][0,iteration_index + 1,:,:] - 
-                                             result['speed_steps'][0,iteration_index,:,:])/
-                         np.linalg.norm(result['speed_steps'][0,iteration_index + 1,:,:]))
-        error_measure[iteration_index] = this_error_measure
-        
-    plt.figure(figsize = (2.5,2.5), constrained_layout = True) 
-    plt.plot(stepsizes[1:], error_measure)
-    plt.title('Stepsize per ' + str(iteration_stepsize) + '\niterations')
-    plt.yscale('log')
-    plt.xlabel('iterations')
-    plt.ylabel('relative step size')
-    plt.savefig(os.path.join(os.path.dirname(__file__),'output','vortex_stepsizes.pdf')) 
-
-    optical_flow.make_convergence_plots(result, filename_start = os.path.join(os.path.dirname(__file__),'output','vortex_convergence_old_new.pdf'))
-
-    print('mean and max final v_x are')
-    print(np.mean(result['v_x']))
-    print(np.max(result['v_x']))
-    print('mean and max final v_y are')
-    print(np.mean(result['v_y']))
-    print(np.max(result['v_y']))
-    print('mean and max final remodelling are')
-    print(np.mean(result['remodelling']))
-    print(np.max(result['remodelling']))
- 
 def test_and_time_new_numpy_method():
     first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50)
     second_frame, _ = optical_flow.make_fake_data_frame(x_position = 2.6, y_position = 2.6, sigma = 3, width = 5, dimension = 50)
@@ -657,14 +524,16 @@ def identify_non_uniform_remodelling_rate():
  
 
 if __name__ == '__main__':
-    # make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05)
-    # make_convergence_analysis_simple_example(v_x = 0.1, v_y = 0.2, remodelling = 0.05, 
-                                            #  v_x_start = 0.9, v_y_start = 0.9, remodelling_start = 1.0)
+    # simle_test_with_data_on_boundary()
+    # test_big_fake_data()
+    # reproduce_matlab_example_vortex_pair(speed_regularisation=2e4, remodelling_regularisation=1e3)
+    # reproduce_matlab_example_vortex_pair(speed_regularisation=1e5, remodelling_regularisation=1e4)
+    # perform_tuning_variation_on_vortex_example()
 
+    # apply_to_bischoff_data()
+    perform_tuning_variation_on_real_data()
     # try_stopping_condition()
-    # illustrate_boundary_artifacts()
-    # reproduce_matlab_example_vortex_pair_new()
-    analyse_emergence_of_vortex_pair_instability()
+    # test_with_data_on_boundary()
     
 
     ### These are old functions I didn't end up using in my presentation, but didn't want to delete just yet
