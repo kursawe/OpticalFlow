@@ -217,7 +217,7 @@ def conduct_optical_flow(movie, boxsize = 15, delta_x = 1.0, delta_t = 1.0, smoo
 
     return result
 
-def conduct_opencv_flow(movie, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None):
+def conduct_opencv_flow(movie, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = None,**kwargs):
     """Conduct optical flow using the opencv library.
     
     Parameters:
@@ -253,8 +253,11 @@ def conduct_opencv_flow(movie, delta_x = 1.0, delta_t = 1.0, smoothing_sigma = N
     v_y = np.zeros((movie.shape[0]-1, movie.shape[1], movie.shape[2]))
     this_result = None
     for frame_index in range(movie.shape[0]-1):
-        this_result = cv2.calcOpticalFlowFarneback(movie_to_analyse[frame_index,:,:], movie[frame_index + 1,:,:], this_result, 0.5, 
-                                                   levels = 5, winsize = 10, iterations = 40, poly_n = 5, poly_sigma = 10, flags = cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
+        print('applying Farneback optical flow to frame ' + str(frame_index))
+        print(' ')
+        this_result = cv2.calcOpticalFlowFarneback(movie_to_analyse[frame_index,:,:], movie[frame_index + 1,:,:], this_result, flags = cv2.OPTFLOW_FARNEBACK_GAUSSIAN, **kwargs)
+                                                #    0.5, 
+                                                #    levels = 5, winsize = 10, iterations = 40, poly_n = 5, poly_sigma = 10, flags = cv2.OPTFLOW_FARNEBACK_GAUSSIAN)
         v_x[frame_index,:,:] = this_result[:,:,0]
         v_y[frame_index,:,:] = this_result[:,:,1]
         
@@ -1104,7 +1107,8 @@ def variational_optical_flow(movie,
 
         solver = PETSc.KSP().create()
         solver.setOperators(LHS_matrix_petsc)
-        solver.setTolerances(rtol = 1e-6, max_it=1000)
+        # solver.setTolerances(rtol = 1e-6, max_it=1000)
+        solver.setTolerances(rtol = 1e-6, max_it=100)
 
         # potentially useful leftovers from debugging:
         # print(dir(solver))
@@ -1491,7 +1495,7 @@ def conduct_variational_optical_flow_deprecated(movie,
     
     return result
 
-def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.0, v_max = 255.0):
+def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.0, v_max = 255.0, unit = '$\mathrm{\mu}$m'):
     """Our typical way to show images. Will display the image without any anti-aliasing and add axis units and labels. 
     Can be used for simulated images if autoscale is set to True. The figure and figure panels need to be created outside
     of this function.
@@ -1531,8 +1535,8 @@ def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.
     x_extent = Xpixels * delta_x
     y_extent = Ypixels * delta_x
     plt.imshow(image,cmap = cmap, extent = [0,y_extent, x_extent, 0], vmin = v_min, vmax = v_max, interpolation = None)
-    plt.xlabel("y-position [$\mathrm{\mu}$m]")
-    plt.ylabel("x-position [$\mathrm{\mu}$m]")
+    plt.xlabel("y-position [" + unit + "]")
+    plt.ylabel("x-position [" + unit + "]")
  
 def subsample_velocities_for_visualisation(flow_result, iteration = None, arrow_boxsize = 5):
     """Generate arrows for plotting from a flow result. Will generate quantities that
@@ -1582,11 +1586,15 @@ def subsample_velocities_for_visualisation(flow_result, iteration = None, arrow_
         for arrow_box_index_x in range(Nbx):
             for arrow_box_index_y in range(Nby):
                 if iteration is not None:
-                    v_x_at_pixel = flow_result['v_x_steps'][frame_index-1,iteration,arrow_box_index_x*arrow_boxsize + round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
-                    v_y_at_pixel = flow_result['v_y_steps'][frame_index-1,iteration,arrow_box_index_x*arrow_boxsize + round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
+                    v_x_at_pixel = flow_result['v_x_steps'][frame_index-1,iteration,arrow_box_index_x*arrow_boxsize + 
+                                                            round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
+                    v_y_at_pixel = flow_result['v_y_steps'][frame_index-1,iteration,arrow_box_index_x*arrow_boxsize +
+                                                            round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
                 else:
-                    v_x_at_pixel = flow_result['v_x'][frame_index-1,arrow_box_index_x*arrow_boxsize + round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
-                    v_y_at_pixel = flow_result['v_y'][frame_index-1,arrow_box_index_x*arrow_boxsize + round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
+                    v_x_at_pixel = flow_result['v_x'][frame_index-1,arrow_box_index_x*arrow_boxsize + 
+                                                      round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
+                    v_y_at_pixel = flow_result['v_y'][frame_index-1,arrow_box_index_x*arrow_boxsize + 
+                                                      round(arrow_boxsize/2),arrow_box_index_y*arrow_boxsize + round(arrow_boxsize/2)]
                 this_subsampled_v_x[arrow_box_index_x,arrow_box_index_y] = v_x_at_pixel 
                 this_subsampled_v_y[arrow_box_index_x,arrow_box_index_y] = v_y_at_pixel 
                 
@@ -2094,3 +2102,116 @@ def plot_regularisation_variation(variation_result, filename, use_log_axes = Fal
     
     plt.savefig(filename)
  
+def convert_PIV_result(PIV_result, movie, delta_x = 1.0, delta_t = 1.0):
+    '''take a .mat PIV file and turn it into a flow result dictionary, with the usual entries.
+    It will save the PIV velocities in designated extra dictionary entries.
+    
+    Parameters:
+    ------------
+    
+    PIV_result : loaded PIV result
+        dictionary from loading a PIVlab .mat file
+        
+    movie : array
+        the movie that is being analyised
+
+    delta_x : float
+        the pixelsize of the original data
+
+    delta_t : float
+        the time interval of the original data
+
+    Returns:
+    --------
+
+    flow_result : dict
+        a dictionary just like conduct_optical_flow and functions of its kind return
+    '''   
+    
+    x_locations = PIV_result['x']*delta_x
+    y_locations = PIV_result['y']*delta_x
+    v_x = PIV_result['u_original']*delta_x/delta_t
+    v_y = PIV_result['v_original']*delta_x/delta_t
+    
+    new_x_locations = np.zeros((len(x_locations), x_locations[0][0].shape[0],x_locations[0][0].shape[1] ))
+    new_y_locations = np.zeros_like(new_x_locations)
+    new_v_x = np.zeros_like(new_x_locations)
+    new_v_y = np.zeros_like(new_x_locations)
+
+    for frame_index in range(len(x_locations)):
+        new_x_locations[frame_index,:,:] = x_locations[frame_index][0]
+        new_y_locations[frame_index,:,:] = y_locations[frame_index][0]
+        new_v_x[frame_index,:,:] = v_x[frame_index][0]
+        new_v_y[frame_index,:,:] = v_y[frame_index][0]
+        
+    # Create a meshgrid for the whole image
+    x_range = np.arange(0, movie.shape[1])
+    y_range = np.arange(0, movie.shape[2])
+    X, Y = np.meshgrid(x_range, y_range)
+
+    # import pdb; pdb.set_trace()
+
+    x_velocities_upsampled = np.zeros_like(movie,dtype = 'float')[:-1,:,:]
+    y_velocities_upsampled = np.zeros_like(movie,dtype = 'float')[:-1,:,:]
+
+    # Upsample x-velocities and y-velocities using quadratic interpolation
+    for frame_index in range(movie.shape[0] -1):
+        nan_mask = np.logical_and(~np.isnan(new_v_x[frame_index,:,:]),~np.isnan(new_v_y[frame_index,:,:]))
+        x_velocities_upsampled[frame_index,:,:] = scipy.interpolate.griddata((new_x_locations[frame_index,:,:][nan_mask].flatten(), new_y_locations[frame_index,:,:][nan_mask].flatten()), 
+                                  new_v_x[frame_index,:,:][nan_mask].flatten(), 
+                                  (X, Y), 
+                                  method='cubic')
+
+        y_velocities_upsampled[frame_index,:,:] = scipy.interpolate.griddata((new_x_locations[frame_index,:,:][nan_mask].flatten(), new_y_locations[frame_index,:,:][nan_mask].flatten()), 
+                                  new_v_y[frame_index,:,:][nan_mask].flatten(), 
+                                  (X, Y), 
+                                  method='cubic')
+     
+    # import pdb; pdb.set_trace()
+    # x_velocities_upsampled = np.array([x_velocities_upsampled.reshape(x_range.size, y_range.size)])
+    # y_velocities_upsampled = np.array([y_velocities_upsampled.reshape(x_range.size, y_range.size)])
+    speed = np.sqrt(x_velocities_upsampled**2 + y_velocities_upsampled**2)
+    
+    # blurred_movie = blur_movie(movie,3)
+
+    # x_velocities_upsampled[0,blurred_movie[8,:,:]<10.0] = 0.0
+    # y_velocities_upsampled[0,blurred_movie[8,:,:]<10.0] = 0.0
+    # x_velocities_upsampled[speed> 7] = 0.0
+    # y_velocities_upsampled[speed> 7] = 0.0
+
+    flow_result = dict()
+    flow_result['v_x'] = x_velocities_upsampled
+    flow_result['v_y'] = y_velocities_upsampled
+    flow_result['speed'] = speed
+    flow_result['delta_x'] = delta_x
+    flow_result['delta_t'] = delta_t
+    flow_result['original_data'] = movie
+    flow_result['x_locations'] = new_x_locations
+    flow_result['y_locations'] = new_y_locations
+    flow_result['PIV_v_x'] = new_v_x
+    flow_result['PIV_v_y'] = new_v_y
+ 
+    return flow_result
+
+def filter_PIV_flow_result(flow_result, intensity_threshold = 10, speed_threshold = 7):
+    '''Sets unrealistic velolcities to zero, such as really small velocities
+    
+    Parameters:
+    -----------
+    flow_result : dict
+        flow result converted from PIV
+        
+    intensity_threshold : intensity below which velocities are set to zero
+    '''
+    blurred_movie = blur_movie(flow_result['original_data'], 3)
+    
+    flow_result['v_x'][blurred_movie[:-1,:,:]<intensity_threshold] = 0.0
+    flow_result['v_y'][blurred_movie[:-1,:,:]<intensity_threshold] = 0.0
+
+    flow_result['v_x'][flow_result['speed'] > 7] = 0.0
+    flow_result['v_y'][flow_result['speed'] > 7] = 0.0
+
+    flow_result['speed'][flow_result['speed'] > 7] = 0.0
+    
+
+
