@@ -11,6 +11,7 @@ import pandas as pd
 from matplotlib.animation import FuncAnimation
 import skimage
 import scipy.io
+import tifffile
 
 sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
@@ -163,7 +164,7 @@ def visualise_ground_truth_displacement():
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
         plt.cla()
-        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie))
+        optical_flow.costum_imshow(movie[i,:,:],delta_x = delta_x, v_min = 0, v_max = np.max(movie), unit = 'pixels')
         if i == 0:
             plt.scatter(y_coordinates_start, x_coordinates_start, color = 'red', s = 1)
         else:
@@ -400,8 +401,9 @@ def apply_variational_optical_flow(speed_regularisation=1e4, remodelling_regular
 
     # movie = movie[3:5,150:800,280:550]
     # movie = movie[3:5,250:900,500:800]
-    movie = movie[8:10,300:750,280:600]
-    blur = 3.0
+    # movie = movie[8:10,300:750,280:600]
+    movie = movie[8:10,:,:]
+    blur = 1.5
     # print(movie.flatten().shape)
     # fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     # def animate(i): 
@@ -424,7 +426,8 @@ def apply_variational_optical_flow(speed_regularisation=1e4, remodelling_regular
                                                            initial_remodelling=10,
     # )
                                                            smoothing_sigma = blur,
-                                                           use_direct_solver = True)
+                                                        #    use_direct_solver = True)
+                                                           use_direct_solver = False)
     
     np.save(os.path.join(os.path.dirname(__file__),'output','cell_12_test_result_' + str(speed_regularisation) + '_'
                                                           + str(remodelling_regularisation) + '_' + str(blur) + '.npy'), result)
@@ -741,22 +744,87 @@ def compare_ground_truth_displacement():
     plt.xlabel('Angle between\nPIV and OpenCV result')
     plt.savefig(os.path.join(os.path.dirname(__file__),'output','angle_histogram_PIV.pdf'),dpi=600) 
 
+def try_downsampled_image():
+    path_to_movie = os.path.join(os.path.dirname(__file__),'data','12_grayscale')
+    movie = np.array(read_image_sequence(path_to_movie))
+    movie = movie[8:10].astype('float')
+    # movie = optical_flow.blur_movie(movie,3)
+    
+    resolution = 200
+    downsampled_movie = np.zeros((movie.shape[0],resolution,resolution))
+    for frame_index in range(movie.shape[0]):
+        this_frame = movie[frame_index,:,:]
+        # this_downsampled_frame = cv2.resize(this_frame,dsize = (50,50), interpolation = cv2.INTER_CUBIC)
+        this_downsampled_frame = cv2.resize(this_frame,dsize = (resolution,resolution), interpolation = cv2.INTER_AREA)
+        downsampled_movie[frame_index,:,:] = this_downsampled_frame
+    
+    # animate the downsampled movie
+    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    def animate(i): 
+        plt.cla()
+        optical_flow.costum_imshow(downsampled_movie[i,:,:],delta_x = 1, v_min = 0, v_max = np.max(movie))
+    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    ani.save(os.path.join(os.path.dirname(__file__),'output','downsampled_movie.mp4'),dpi=300) 
+    
+    tifffile.imsave(os.path.join(os.path.dirname(__file__),'output','downsampled.tiff'), downsampled_movie)
+
+    speed_regularisation = 500
+    remodelling_regularisation = 1
+    result = optical_flow.variational_optical_flow(downsampled_movie,
+                                                           delta_x = 1,
+                                                           delta_t = 1,
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
+                                                           initial_v_x =0.07,
+                                                           initial_v_y =0.07,
+                                                           initial_remodelling=10,
+    # )
+                                                           smoothing_sigma = 1.0,
+                                                        #    use_direct_solver = True)
+                                                           use_direct_solver = True)
+    
+    np.save(os.path.join(os.path.dirname(__file__),'output','cell_12_test_result_downsampled_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '.npy'), result)
+    # result = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_test_result_' + str(speed_regularisation) + '_'
+                                                        #   + str(remodelling_regularisation) + '_' + str(blur) + '.npy'),allow_pickle='TRUE').item()
+
+    optical_flow.make_velocity_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                                          'cell_12_test_downsampled' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 5)
+                                            #  arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
+
+    optical_flow.make_joint_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                             'cell_12_test_downsampled_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_joint_result.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 5)
+                                            #  arrow_width = 0.005)
+
 
 
 if __name__ == '__main__':
 
     # functions I used in the presentation:
-    compare_PIV_and_optical_flow()
-    compare_ground_truth_displacement()
+    # visualise_ground_truth_displacement()
+    # compare_PIV_and_optical_flow()
+    # compare_ground_truth_displacement()
 
     # other functions I played around with
     # conduct_dense_optical_flow_one_frame()
-    # visualise_ground_truth_displacement()
     # perform_tuning_variation()
     # investigate_intensities()
     # make_thresholded_movie(threshold = 100)
     # make_movie_wo_background(threshold = 40)
     # correct_intensity_change()
     
-    # apply_variational_optical_flow(speed_regularisation=5e2, remodelling_regularisation=1e3)
+    try_downsampled_image()
+    # apply_variational_optical_flow(speed_regularisation=2e3, remodelling_regularisation=1)
+
     # show_PIV_data()

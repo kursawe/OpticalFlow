@@ -1108,7 +1108,7 @@ def variational_optical_flow(movie,
         solver = PETSc.KSP().create()
         solver.setOperators(LHS_matrix_petsc)
         # solver.setTolerances(rtol = 1e-6, max_it=1000)
-        solver.setTolerances(rtol = 1e-6, max_it=100)
+        solver.setTolerances(rtol = 1e-6, max_it=1000)
 
         # potentially useful leftovers from debugging:
         # print(dir(solver))
