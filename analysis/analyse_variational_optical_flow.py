@@ -522,6 +522,86 @@ def identify_non_uniform_remodelling_rate():
     print(np.mean(result['remodelling']))
     print(np.max(result['remodelling']))
  
+def apply_to_downsampled_bischoff_data(resolution = 200):
+    movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
+    delta_x = 105/1024
+    delta_t = 10
+    movie = movie[3:5]
+    # movie = optical_flow.blur_movie(movie,3)
+    
+    # resolution = 100
+    downsampled_movie = np.zeros((movie.shape[0],resolution,resolution))
+    for frame_index in range(movie.shape[0]):
+        this_frame = movie[frame_index,:,:]
+        # this_downsampled_frame = cv2.resize(this_frame,dsize = (50,50), interpolation = cv2.INTER_CUBIC)
+        this_downsampled_frame = cv2.resize(this_frame,dsize = (resolution,resolution), interpolation = cv2.INTER_AREA)
+        downsampled_movie[frame_index,:,:] = this_downsampled_frame
+
+    # threshold = 40
+    # thresholded_movie = downsampled_movie.astype('float')
+    # thresholded_movie = thresholded_movie - threshold
+    # thresholded_movie[thresholded_movie<0] = 0
+    # thresholded_movie = thresholded_movie.astype('uint8')
+    # downsampled_movie = thresholded_movie
+ 
+    # animate the downsampled movie
+    fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
+    def animate(i): 
+        plt.cla()
+        optical_flow.costum_imshow(downsampled_movie[i,:,:],delta_x = 1, v_min = 0, v_max = np.max(movie))
+    ani = FuncAnimation(fig, animate, frames=movie.shape[0])
+    ani.save(os.path.join(os.path.dirname(__file__),'output','downsampled_example_movie.mp4'),dpi=300) 
+    
+    tifffile.imsave(os.path.join(os.path.dirname(__file__),'output','downsampled_example.tiff'), downsampled_movie)
+
+    speed_regularisation = 1000
+    remodelling_regularisation = 100
+    blur = 1
+    result = optical_flow.variational_optical_flow(downsampled_movie,
+                                                           delta_x = movie.shape[1]/resolution*delta_x,
+                                                           delta_t = delta_t,
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
+                                                           initial_v_x =0.07,
+                                                           initial_v_y =0.07,
+                                                           initial_remodelling=10,
+    # )
+                                                           smoothing_sigma = blur,
+                                                        #    use_direct_solver = True)
+                                                           use_direct_solver = True)
+    
+    np.save(os.path.join(os.path.dirname(__file__),'output','original_cell_test_result_downsampled_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_blur_' + str(blur) + '.npy'), result)
+    # result = np.load(os.path.join(os.path.dirname(__file__),'output','real_data_test_result_' + str(speed_regularisation) + '_'
+                                                        #   + str(remodelling_regularisation) + '_' + str(blur) + '.npy'),allow_pickle='TRUE').item()
+
+    optical_flow.make_velocity_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                                          'original_cell_test_downsampled' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_blur_' + str(blur) + '.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 5)
+                                            #  arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
+
+    optical_flow.make_joint_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                             'original_cell_test_downsampled_' + str(speed_regularisation) + '_'
+                                                          + str(remodelling_regularisation) + '_blur_' + str(blur) + '_joint_result.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 5)
+                                            #  arrow_width = 0.005)
+
+    result_for_plotting = optical_flow.vary_regularisation(downsampled_movie, speed_alpha_values = np.logspace(-1,4,20),
+                                                           remodelling_alpha_values = np.logspace(-1,4,20),
+    # result_for_plotting = optical_flow.vary_regularisation(movie, speed_alpha_values = np.logspace(3,8,15),
+                                                        #    remodelling_alpha_values = np.logspace(-1,8,20),
+                                                           filename = os.path.join(os.path.dirname(__file__), 'output',
+                                                                                   'real_data_small_regularisation_variation_resolution_'+str(resolution)),
+                                                           smoothing_sigma = 1,
+                                                           use_direct_solver = True)
 
 if __name__ == '__main__':
     # simle_test_with_data_on_boundary()
@@ -531,7 +611,11 @@ if __name__ == '__main__':
     # perform_tuning_variation_on_vortex_example()
 
     # apply_to_bischoff_data()
-    perform_tuning_variation_on_real_data()
+    apply_to_downsampled_bischoff_data(resolution = 200)
+    apply_to_downsampled_bischoff_data(resolution = 100)
+    apply_to_downsampled_bischoff_data(resolution = 50)
+
+    # perform_tuning_variation_on_real_data()
     # try_stopping_condition()
     # test_with_data_on_boundary()
     

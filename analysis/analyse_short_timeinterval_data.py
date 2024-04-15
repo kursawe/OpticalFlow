@@ -757,7 +757,14 @@ def try_downsampled_image():
         # this_downsampled_frame = cv2.resize(this_frame,dsize = (50,50), interpolation = cv2.INTER_CUBIC)
         this_downsampled_frame = cv2.resize(this_frame,dsize = (resolution,resolution), interpolation = cv2.INTER_AREA)
         downsampled_movie[frame_index,:,:] = this_downsampled_frame
-    
+
+    # threshold = 40
+    # thresholded_movie = downsampled_movie.astype('float')
+    # thresholded_movie = thresholded_movie - threshold
+    # thresholded_movie[thresholded_movie<0] = 0
+    # thresholded_movie = thresholded_movie.astype('uint8')
+    # downsampled_movie = thresholded_movie
+ 
     # animate the downsampled movie
     fig = plt.figure(figsize = (4.5,2.5), constrained_layout = True)
     def animate(i): 
@@ -768,8 +775,8 @@ def try_downsampled_image():
     
     tifffile.imsave(os.path.join(os.path.dirname(__file__),'output','downsampled.tiff'), downsampled_movie)
 
-    speed_regularisation = 500
-    remodelling_regularisation = 1
+    speed_regularisation = 1
+    remodelling_regularisation = 0.01
     result = optical_flow.variational_optical_flow(downsampled_movie,
                                                            delta_x = 1,
                                                            delta_t = 1,
@@ -813,7 +820,7 @@ if __name__ == '__main__':
 
     # functions I used in the presentation:
     # visualise_ground_truth_displacement()
-    # compare_PIV_and_optical_flow()
+    compare_PIV_and_optical_flow()
     # compare_ground_truth_displacement()
 
     # other functions I played around with
@@ -824,7 +831,7 @@ if __name__ == '__main__':
     # make_movie_wo_background(threshold = 40)
     # correct_intensity_change()
     
-    try_downsampled_image()
+    # try_downsampled_image()
     # apply_variational_optical_flow(speed_regularisation=2e3, remodelling_regularisation=1)
 
     # show_PIV_data()

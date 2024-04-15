@@ -934,12 +934,17 @@ def variational_optical_flow(movie,
         RHS[uy_i_j_indices] = (- previous_frame*dIdy_t).flatten()
 
         # Euler-Lagrange for remodelling
+
         LHS_matrix[remodelling_i_j_indices, remodelling_i_j_indices] = -1 - 4*remodelling_alpha
+        
+        # alternative formulaiton
+        # LHS_matrix[remodelling_i_j_indices, remodelling_i_j_indices] = -1 - remodelling_alpha
 
         LHS_matrix[remodelling_i_j_indices, ux_i_j_indices] = dIdx.flatten()
 
         LHS_matrix[remodelling_i_j_indices, uy_i_j_indices] = dIdy.flatten()
 
+        # these are part of the standard formulation, uncomment for alternative formlation
         LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, -1, 0, 'remodelling')] = remodelling_alpha
         LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, +1, 0, 'remodelling')] = remodelling_alpha
         LHS_matrix[remodelling_i_j_indices, get_index_set(N_i, N_j, 0, -1, 'remodelling')] = remodelling_alpha
