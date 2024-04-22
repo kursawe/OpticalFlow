@@ -17,6 +17,7 @@ import cv2
 import imageio
 import tifffile
 import time
+import scipy.optimize
 
 sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
@@ -554,8 +555,11 @@ def apply_to_downsampled_bischoff_data(resolution = 200):
     
     tifffile.imsave(os.path.join(os.path.dirname(__file__),'output','downsampled_example.tiff'), downsampled_movie)
 
-    speed_regularisation = 1000
-    remodelling_regularisation = 100
+    # speed_regularisation = 981
+    # remodelling_regularisation = 1e-8
+    speed_regularisation = 8409.987
+    remodelling_regularisation = 4.52866
+    
     blur = 1
     result = optical_flow.variational_optical_flow(downsampled_movie,
                                                            delta_x = movie.shape[1]/resolution*delta_x,
@@ -564,7 +568,7 @@ def apply_to_downsampled_bischoff_data(resolution = 200):
                                                            remodelling_alpha=remodelling_regularisation,
                                                            initial_v_x =0.07,
                                                            initial_v_y =0.07,
-                                                           initial_remodelling=10,
+                                                           initial_remodelling=1,
     # )
                                                            smoothing_sigma = blur,
                                                         #    use_direct_solver = True)
@@ -580,7 +584,7 @@ def apply_to_downsampled_bischoff_data(resolution = 200):
                                                           'original_cell_test_downsampled' + str(speed_regularisation) + '_'
                                                           + str(remodelling_regularisation) + '_blur_' + str(blur) + '.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.1,
+                                             arrow_scale = 1,
                                              arrow_boxsize = 5)
                                             #  arrow_width = 0.005)
                                             #  arrow_color = 'lime')
@@ -590,9 +594,16 @@ def apply_to_downsampled_bischoff_data(resolution = 200):
                                              'original_cell_test_downsampled_' + str(speed_regularisation) + '_'
                                                           + str(remodelling_regularisation) + '_blur_' + str(blur) + '_joint_result.mp4'), 
                                              autoscale = True,
-                                             arrow_scale = 0.1,
+                                             arrow_scale = 1,
                                              arrow_boxsize = 5)
                                             #  arrow_width = 0.005)
+                                            
+    print(' ')
+    print('The total functional is')
+    print(result['L1_functional'] + result['speed_functional'] + result['remodelling_functional'])
+    print(' ')
+    print('The L1 functional is')
+    print(result['L1_functional'])
 
     result_for_plotting = optical_flow.vary_regularisation(downsampled_movie, speed_alpha_values = np.logspace(-1,4,20),
                                                            remodelling_alpha_values = np.logspace(-1,4,20),
@@ -603,6 +614,118 @@ def apply_to_downsampled_bischoff_data(resolution = 200):
                                                            smoothing_sigma = 1,
                                                            use_direct_solver = True)
 
+def optimize_regularisation_parameters():
+    movie = skimage.io.imread(os.path.join(os.path.dirname(__file__),'data','MB301110_i_4_movie_8 bit.tif'))
+    delta_x = 105/1024
+    delta_t = 10
+    movie = movie[3:5]
+    # movie = optical_flow.blur_movie(movie,3)
+    
+    resolution = 150
+    downsampled_movie = np.zeros((movie.shape[0],resolution,resolution))
+    for frame_index in range(movie.shape[0]):
+        this_frame = movie[frame_index,:,:]
+        # this_downsampled_frame = cv2.resize(this_frame,dsize = (50,50), interpolation = cv2.INTER_CUBIC)
+        this_downsampled_frame = cv2.resize(this_frame,dsize = (resolution,resolution), interpolation = cv2.INTER_AREA)
+        downsampled_movie[frame_index,:,:] = this_downsampled_frame
+
+    blur = 1
+    def objective_function(regularisation_parameters):
+        speed_regularisation = np.power(10,regularisation_parameters[0])
+        remodelling_regularisation = np.power(10,regularisation_parameters[1])
+        result = optical_flow.variational_optical_flow(downsampled_movie,
+                                                           delta_x = movie.shape[1]/resolution*delta_x,
+                                                           delta_t = delta_t,
+                                                           speed_alpha=speed_regularisation,
+                                                           remodelling_alpha=remodelling_regularisation,
+                                                           initial_v_x =0.07,
+                                                           initial_v_y =0.07,
+                                                           initial_remodelling=10,
+    # )
+                                                           smoothing_sigma = blur,
+                                                        #    use_direct_solver = True)
+                                                           use_direct_solver = True)
+
+        print(' ')
+        print('the current speed and remodelling regularisation parameters are')
+        print(regularisation_parameters)
+        print('The total functional is')
+        print(result['L1_functional'] + result['speed_functional'] + result['remodelling_functional'])
+        print(' ')
+        print('The L1 functional is')
+        print(result['L1_functional'])
+
+        total_functional = result['L1_functional'] + result['speed_functional'] + result['remodelling_functional']
+
+        return total_functional
+    
+    bounds = [(-1, 8), (1, 8)]
+    # Initialize minimum value and corresponding parameters
+    optimal_regularisation = None
+    min_functional_value = np.inf
+    # num_restarts = 5
+    initial_guesses = [[3,3]]
+    # initial_guesses = [[1,1],[1000,1000],[1e4,1e4],[1e8,1e8]]
+
+    # optimisation_result = scipy.optimize.minimize(objective_function, initial_guess, bounds = bounds, method = 'Powell')
+    optimisation_result = scipy.optimize.shgo(objective_function, bounds = bounds)
+    # for initial_guess in initial_guesses:
+        # Perform optimization
+        # optimisation_result = scipy.optimize.minimize(objective_function, initial_guess, bounds = bounds, method = 'Powell')
+        # optimisation_result = scipy.optimize.minimize(objective_function, initial_guess, bounds = bounds)
+
+        # Update minimum value and corresponding parameters
+        # if optimisation_result.fun < min_functional_value:
+            # print(str(optimisation_result.fun) + ' is smaller than ' + str(min_functional_value))
+            # min_functional_value = optimisation_result.fun
+            # optimal_regularisation = np.power(10,optimisation_result.x)
+    # initial_guess = [100,1e5]
+    # optimisation_result = scipy.optimize.minimize(objective_function, initial_guess, bounds = bounds)
+
+    # Optimal values
+    optimal_regularisation = np.power(10,optimisation_result.x)
+    min_functional_value = optimisation_result.fun
+    
+    # Number of function evaluations
+    num_evaluations = optimisation_result.nfev
+
+    print("Optimal regularisation:", optimal_regularisation)
+    print("Minimum value:", min_functional_value)
+    print("Number of function evaluations:", num_evaluations)
+
+    result = optical_flow.variational_optical_flow(downsampled_movie,
+                                                           delta_x = movie.shape[1]/resolution*delta_x,
+                                                           delta_t = delta_t,
+                                                           speed_alpha=optimal_regularisation[0],
+                                                           remodelling_alpha=optimal_regularisation[1],
+                                                           initial_v_x =0.07,
+                                                           initial_v_y =0.07,
+                                                           initial_remodelling=10,
+    # )
+                                                           smoothing_sigma = blur,
+                                                        #    use_direct_solver = True)
+                                                           use_direct_solver = True)
+
+    optical_flow.make_velocity_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                                          'original_cell_test_downsampled_blur_' + str(blur) + '_optimised.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 5)
+                                            #  arrow_width = 0.005)
+                                            #  arrow_color = 'lime')
+
+    optical_flow.make_joint_overlay_movie(result, 
+                                             os.path.join(os.path.dirname(__file__),'output',
+                                             'original_cell_test_downsampled_blur_' + str(blur) + '_optimised_joint_result.mp4'), 
+                                             autoscale = True,
+                                             arrow_scale = 0.1,
+                                             arrow_boxsize = 5)
+                                            #  arrow_width = 0.005)
+ 
+ 
+
+    
 if __name__ == '__main__':
     # simle_test_with_data_on_boundary()
     # test_big_fake_data()
@@ -613,7 +736,9 @@ if __name__ == '__main__':
     # apply_to_bischoff_data()
     apply_to_downsampled_bischoff_data(resolution = 200)
     apply_to_downsampled_bischoff_data(resolution = 100)
+    # apply_to_downsampled_bischoff_data(resolution = 150)
     apply_to_downsampled_bischoff_data(resolution = 50)
+    # optimize_regularisation_parameters()
 
     # perform_tuning_variation_on_real_data()
     # try_stopping_condition()

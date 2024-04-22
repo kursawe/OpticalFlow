@@ -783,6 +783,10 @@ def variational_optical_flow(movie,
     all_v_x = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)#previous 0.0001*0.019550342130987292
     all_v_y = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels), dtype = float)
     all_remodelling = np.zeros((number_of_frames-1,number_of_Xpixels,number_of_Ypixels),dtype = float)   
+    
+    L1_functional = np.zeros(movie_to_analyse.shape[0])
+    remodelling_functional = np.zeros(movie_to_analyse.shape[0])
+    speed_functional = np.zeros(movie_to_analyse.shape[0])
 
     for frame_index in range(1,movie_to_analyse.shape[0]):
         print("Processing pair of frames number " + str(frame_index))
@@ -1160,11 +1164,32 @@ def variational_optical_flow(movie,
         apply_constant_boundary_condition(v_x)
         apply_constant_boundary_condition(v_y)
         apply_constant_boundary_condition(remodelling)
+        dvx_dx = apply_numerical_derivative(v_x,'dx')
+        dvx_dy = apply_numerical_derivative(v_x,'dy')
+        dvy_dx = apply_numerical_derivative(v_y,'dx')
+        dvy_dy = apply_numerical_derivative(v_y,'dy')
+        
+        # calculate residuals
+        print(' ')
+        print(('Estimating functional'))
+        residual_start_time = time.time()
+        dremodelling_dx = apply_numerical_derivative(remodelling,'dx')
+        dremodelling_dy = apply_numerical_derivative(remodelling,'dy')
+        L1_functional[frame_index] = np.sum(np.power(dIdt + 
+                                                     v_x[1:-1,1:-1]*dIdx + v_y[1:-1,1:-1]*dIdy + 
+                                                     previous_frame*dvx_dx + previous_frame*dvy_dy - remodelling[1:-1,1:-1],2))
+        speed_functional[frame_index] = speed_alpha*(np.sum(np.power(dvx_dx,2) + np.power(dvx_dy,2) + 
+                                                           np.power(dvy_dx,2) + np.power(dvy_dy,2)))
+        remodelling_functional[frame_index] = remodelling_alpha*(np.sum(np.power(dremodelling_dx,2) + np.power(dremodelling_dy,2) ) )
+        residual_end_time = time.time()
+        minutes, seconds, milliseconds = format_elapsed_time(residual_end_time - residual_start_time)
+        print(f"Time taken: {minutes} minutes, {seconds} seconds, {milliseconds} milliseconds")
+        print(' ')
         
     all_v_x *= delta_x/delta_t
     all_v_y *= delta_x/delta_t
     all_speed = np.sqrt(all_v_x**2+all_v_y**2)
-
+    
     result = dict()
     result['v_x'] = all_v_x
     result['v_y'] = all_v_y
@@ -1175,6 +1200,9 @@ def variational_optical_flow(movie,
     result['delta_t'] = delta_t
     result['blurred_data'] = movie_to_analyse
     result['converged'] = solver.converged
+    result['L1_functional'] = np.sum(L1_functional)
+    result['remodelling_functional'] = np.sum(remodelling_functional)
+    result['speed_functional'] = np.sum(remodelling_functional)
 
     print('')
     print('optical flow calculations finished')
@@ -1926,6 +1954,7 @@ def vary_regularisation(movie,
     remodelling_means = np.zeros_like(speed_means)
     remodelling_variances = np.zeros_like(speed_means)
     converged = np.zeros_like(speed_means, dtype = bool)
+    total_variations = np.zeros_like(speed_means)
     
     total_iteration_number = 0
     for speed_alpha_index, speed_alpha in enumerate(speed_alpha_values):
@@ -1951,6 +1980,7 @@ def vary_regularisation(movie,
             remodelling_means[speed_alpha_index, remodelling_alpha_index] = np.mean(result['remodelling'])
             remodelling_variances[speed_alpha_index, remodelling_alpha_index] = np.var(result['remodelling'])
             converged[speed_alpha_index, remodelling_alpha_index] = result['converged']
+            total_variations[speed_alpha_index, remodelling_alpha_index] = result['L1_functional'] + result['speed_functional'] + result['remodelling_functional']
             
     result_dict = {}
     result_dict['speed_alpha_values'] = speed_alpha_values
@@ -1960,6 +1990,7 @@ def vary_regularisation(movie,
     result_dict['remodelling_means'] = remodelling_means
     result_dict['remodelling_variances'] = remodelling_variances
     result_dict['converged'] = converged
+    result_dict['functional'] = total_variations
 
     if filename is not None:
         np.save(filename, result_dict)
