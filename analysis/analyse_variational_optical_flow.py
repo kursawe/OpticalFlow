@@ -23,7 +23,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__),'..','source'))
 import optical_flow
 
    
-def simle_test_with_data_on_boundary():
+def simple_test_with_data_on_boundary():
     v_x = 0.1
     v_y = 0.2
     first_frame, delta_x = optical_flow.make_fake_data_frame(x_position = 2.5, y_position = 2.5, sigma = 3, width = 5, dimension = 50, include_noise = False)
@@ -349,7 +349,7 @@ def reproduce_matlab_variational_flow_method():
         optical_flow.costum_imshow(this_speed_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
         colorbar = plt.colorbar()
         plt.clim(np.min(result['speed_steps']),np.max(result['speed_steps']))
-        colorbar.ax.set_ylabel('Motion speed [$\mathrm{\mu m}$/s]')
+        colorbar.ax.set_ylabel(r'Motion speed [$\mathrm{\mu m}$/s]')
     ani = FuncAnimation(fig, animate, frames=result['speed_steps'].shape[1])
     ani.save(os.path.join(os.path.dirname(__file__),'output','variational_iterations_' + str(iterations) + '.mp4'),dpi=300) 
  
@@ -727,17 +727,17 @@ def optimize_regularisation_parameters():
 
     
 if __name__ == '__main__':
-    # simle_test_with_data_on_boundary()
+    simple_test_with_data_on_boundary()
     # test_big_fake_data()
     # reproduce_matlab_example_vortex_pair(speed_regularisation=2e4, remodelling_regularisation=1e3)
     # reproduce_matlab_example_vortex_pair(speed_regularisation=1e5, remodelling_regularisation=1e4)
     # perform_tuning_variation_on_vortex_example()
 
     # apply_to_bischoff_data()
-    apply_to_downsampled_bischoff_data(resolution = 200)
-    apply_to_downsampled_bischoff_data(resolution = 100)
+    # apply_to_downsampled_bischoff_data(resolution = 200)
+    # apply_to_downsampled_bischoff_data(resolution = 100)
     # apply_to_downsampled_bischoff_data(resolution = 150)
-    apply_to_downsampled_bischoff_data(resolution = 50)
+    # apply_to_downsampled_bischoff_data(resolution = 50)
     # optimize_regularisation_parameters()
 
     # perform_tuning_variation_on_real_data()

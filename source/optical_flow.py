@@ -1132,7 +1132,7 @@ def variational_optical_flow(movie,
             solver.solve(RHS_petsc, petsc_solution)
 
             print(" ")
-            if solver.converged:
+            if solver.is_converged:
                 print('The solver converged sucessfully')
             else:
                 print('the solver has not actually converged, the result will be incorrect or inaccurate')
@@ -1199,7 +1199,7 @@ def variational_optical_flow(movie,
     result['delta_x'] = delta_x
     result['delta_t'] = delta_t
     result['blurred_data'] = movie_to_analyse
-    result['converged'] = solver.converged
+    result['converged'] = solver.is_converged
     result['L1_functional'] = np.sum(L1_functional)
     result['remodelling_functional'] = np.sum(remodelling_functional)
     result['speed_functional'] = np.sum(remodelling_functional)
@@ -1528,7 +1528,7 @@ def conduct_variational_optical_flow_deprecated(movie,
     
     return result
 
-def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.0, v_max = 255.0, unit = '$\mathrm{\mu}$m'):
+def costum_imshow(image, delta_x, cmap = 'gray_r', autoscale = False, v_min = 0.0, v_max = 255.0, unit = r'$\mathrm{\mu}$m'):
     """Our typical way to show images. Will display the image without any anti-aliasing and add axis units and labels. 
     Can be used for simulated images if autoscale is set to True. The figure and figure panels need to be created outside
     of this function.
@@ -1780,7 +1780,7 @@ def make_convergence_plots(result, filename_start):
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(result['speed_steps']),np.max(result['speed_steps']))
         # colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
-        plt.title('Motion speed [$\mathrm{\mu m}$/s]')
+        plt.title(r'Motion speed [$\mathrm{\mu m}$/s]')
 
         plt.subplot(233)
         this_remodelling_frame = np.zeros((original_data.shape[1], original_data.shape[2]))
@@ -1797,7 +1797,7 @@ def make_convergence_plots(result, filename_start):
         costum_imshow(this_remodelling_frame,delta_x = delta_x, autoscale = True, cmap = 'viridis')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(result['v_x_steps']),np.max(result['v_x_steps']))
-        plt.title('x velocity [$\mathrm{\mu m}$/s]')
+        plt.title(r'x velocity [$\mathrm{\mu m}$/s]')
 
         plt.subplot(235)
         this_remodelling_frame = np.zeros((original_data.shape[1], original_data.shape[2]))
@@ -1806,7 +1806,7 @@ def make_convergence_plots(result, filename_start):
         plt.ylabel('')
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(result['v_y_steps']),np.max(result['v_y_steps']))
-        plt.title('y velocity [$\mathrm{\mu m}$/s]')
+        plt.title(r'y velocity [$\mathrm{\mu m}$/s]')
 
         plt.subplot(236)
         plt.plot(stepsizes[1:], speed_error)
@@ -1886,7 +1886,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['speed']),np.max(flow_result['speed']))
         colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
-        plt.title('Motion speed [$\mathrm{\mu m}$/s]')
+        plt.title(r'Motion speed [$\mathrm{\mu m}$/s]')
 
         plt.subplot(234)
         costum_imshow(flow_result['remodelling'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
@@ -1901,7 +1901,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['v_x']),np.max(flow_result['v_x']))
         colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
-        plt.title('x velocity [$\mathrm{\mu m}$/s]')
+        plt.title(r'x velocity [$\mathrm{\mu m}$/s]')
 
         plt.subplot(236)
         costum_imshow(flow_result['v_y'][i,:,:],delta_x = flow_result['delta_x'], autoscale = True, cmap = 'plasma')
@@ -1909,7 +1909,7 @@ def make_joint_overlay_movie(flow_result,filename, arrow_boxsize = 5, arrow_scal
         colorbar = plt.colorbar(shrink = 0.6)
         plt.clim(np.min(flow_result['v_y']),np.max(flow_result['v_y']))
         colorbar.formatter = matplotlib.ticker.StrMethodFormatter("{x:." + str(2) + "f}")
-        plt.title('y velocity [$\mathrm{\mu m}$/s]')
+        plt.title(r'y velocity [$\mathrm{\mu m}$/s]')
 
     ani = FuncAnimation(fig, animate, frames=original_data.shape[0]-1)
     #ani.save('Visualizing Velocity.gif')
